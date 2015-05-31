@@ -1,0 +1,3348 @@
+Index: package/kernel/gpio-irq-dht/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-irq-dht/Makefile
+@@ -0,0 +1,45 @@
++#
++# Copyright (C) 2008-2012 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++include $(INCLUDE_DIR)/kernel.mk
++
++PKG_NAME:=gpio-irq-dht
++PKG_RELEASE:=1
++
++include $(INCLUDE_DIR)/package.mk
++
++define KernelPackage/gpio-irq-dht
++  SUBMENU:=Other modules
++  DEPENDS:=@!LINUX_3_3
++  TITLE:=GPIO IRQ DHT22 reader
++  FILES:=$(PKG_BUILD_DIR)/gpio-irq-dht.ko
++  AUTOLOAD:=$(call AutoLoad,30,gpio-irq-dht,1)
++  KCONFIG:=
++endef
++
++define KernelPackage/gpio-irq-dht/description
++ This is a DHT22 sensor kernel module for AR9331 devices.
++endef
++
++MAKE_OPTS:= \
++	ARCH="$(LINUX_KARCH)" \
++	CROSS_COMPILE="$(TARGET_CROSS)" \
++	SUBDIRS="$(PKG_BUILD_DIR)"
++
++define Build/Prepare
++	mkdir -p $(PKG_BUILD_DIR)
++	$(CP) ./src/* $(PKG_BUILD_DIR)/
++endef
++
++define Build/Compile
++	$(MAKE) -C "$(LINUX_DIR)" \
++		$(MAKE_OPTS) \
++		modules
++endef
++
++$(eval $(call KernelPackage,gpio-irq-dht))
+Index: package/kernel/gpio-irq-dht/src/gpio-irq-dht.c
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-irq-dht/src/gpio-irq-dht.c
+@@ -0,0 +1,750 @@
++/*
++ *  GPIO IRQ DHT sensor module for AR9331
++ *
++ *  Copyright (C) 2015 Dmitriy Zherebkov <dzh@black-swift.com>
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/gpio.h>
++#include <linux/interrupt.h>
++#include <linux/clk.h>
++
++#include <asm/mach-ath79/ar71xx_regs.h>
++#include <asm/mach-ath79/ath79.h>
++#include <asm/mach-ath79/irq.h>
++
++#include <asm/delay.h>
++#include <asm/siginfo.h>
++
++#include <linux/rcupdate.h>
++#include <linux/sched.h>
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
++
++//#define DEBUG_OUT
++
++#ifdef	DEBUG_OUT
++#define debug(fmt,args...)	printk (KERN_INFO fmt ,##args)
++#else
++#define debug(fmt,args...)
++#endif	/* DEBUG_OUT */
++
++//#define SIG_TIMER_IRQ	(SIGRTMIN+12)	// SIGRTMIN is different in Kernel and User modes
++#define SIG_DHT_IRQ	44				// So we have to hardcode this value
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define DRV_NAME	"GPIO IRQ DHT"
++#define FILE_NAME	"irq-dht"
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static unsigned int _timer_frequency=200000000;
++static spinlock_t	_lock;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define ATH79_TIMER0_IRQ		ATH79_MISC_IRQ(0)
++#define AR71XX_TIMER0_VALUE		0x00
++#define AR71XX_TIMER0_RELOAD	0x04
++
++#define ATH79_TIMER1_IRQ		ATH79_MISC_IRQ(8)
++#define AR71XX_TIMER1_VALUE		0x94
++#define AR71XX_TIMER1_RELOAD	0x98
++
++#define ATH79_TIMER2_IRQ		ATH79_MISC_IRQ(9)
++#define AR71XX_TIMER2_VALUE		0x9C
++#define AR71XX_TIMER2_RELOAD	0xA0
++
++#define ATH79_TIMER3_IRQ		ATH79_MISC_IRQ(10)
++#define AR71XX_TIMER3_VALUE		0xA4
++#define AR71XX_TIMER3_RELOAD	0xA8
++
++static struct _timer_desc_struct
++{
++	unsigned int	irq;
++	unsigned int	value_reg;
++	unsigned int	reload_reg;
++} _timers[4]=
++{
++		{	ATH79_TIMER0_IRQ, AR71XX_TIMER0_VALUE, AR71XX_TIMER0_RELOAD	},
++		{	ATH79_TIMER1_IRQ, AR71XX_TIMER1_VALUE, AR71XX_TIMER1_RELOAD	},
++		{	ATH79_TIMER2_IRQ, AR71XX_TIMER2_VALUE, AR71XX_TIMER2_RELOAD	},
++		{	ATH79_TIMER3_IRQ, AR71XX_TIMER3_VALUE, AR71XX_TIMER3_RELOAD	}
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define GPIO_OFFS_READ		0x04
++#define GPIO_OFFS_SET		0x0C
++#define GPIO_OFFS_CLEAR		0x10
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++void __iomem *ath79_timer_base=NULL;
++
++void __iomem *gpio_addr=NULL;
++void __iomem *gpio_readdata_addr=NULL;
++void __iomem *gpio_setdataout_addr=NULL;
++void __iomem *gpio_cleardataout_addr=NULL;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define DHT11 11
++#define DHT22 22
++
++////////////////////////////////////////////////////////////////////////////////
++
++typedef struct
++{
++	int				timer;
++	int				irq;
++	unsigned int	timeout;			//	allways microseconds
++} _timer_handler;
++
++static _timer_handler	_thandler;
++
++#define	_max_ticks	200
++
++typedef struct
++{
++	unsigned int	timeout;
++	int				value;
++} _gpio_tick;
++
++typedef struct
++{
++	int				gpio;
++	int				irq;
++	int				last_value;
++
++	unsigned int	last_time;
++
++	int				counter;
++	_gpio_tick		ticks[_max_ticks];
++} _gpio_handler;
++
++static _gpio_handler	_ghandler;
++
++static struct dentry* in_file;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_space(char symbol)
++{
++	return (symbol == ' ') || (symbol == '\t');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_digit(char symbol)
++{
++	return (symbol >= '0') && (symbol <= '9');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static irqreturn_t timer_interrupt(int irq, void* dev_id)
++{
++	//	do nothing
++	return (IRQ_HANDLED);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static irqreturn_t gpio_edge_interrupt(int irq, void* dev_id)
++{
++	_gpio_handler* handler=(_gpio_handler*)dev_id;
++
++	if(handler && (handler->irq == irq))
++	{
++		int val=0;
++		unsigned int cur_time=0;
++
++//		debug("Got _handler!\n");
++
++		val=(__raw_readl(gpio_addr + GPIO_OFFS_READ) >> handler->gpio) & 1;
++
++		cur_time=__raw_readl(ath79_timer_base + _timers[_thandler.timer].value_reg)/(_timer_frequency/1000000);
++
++		if(val != handler->last_value)
++		{
++			handler->last_value=val;
++
++			if(handler->counter == -1)
++			{
++				handler->last_time=cur_time;
++				handler->counter=0;
++			}
++			else
++			{
++				if(handler->counter < _max_ticks)
++				{
++					unsigned int timeout=handler->last_time-cur_time;
++
++					handler->last_time=cur_time;
++
++					handler->ticks[handler->counter].timeout=timeout;
++					handler->ticks[handler->counter++].value=!val;
++				}
++				else
++				{
++//					stop();
++//					free_handler();
++				}
++			}
++		}
++	}
++	else
++	{
++		debug("IRQ %d event - no handlers found!\n",irq);
++	}
++
++	return (IRQ_HANDLED);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_irq(int gpio,void* data)
++{
++    if(gpio_request(gpio, DRV_NAME) >= 0)
++    {
++		int irq_number=gpio_to_irq(gpio);
++
++		if(irq_number >= 0)
++		{
++		    int err = request_irq(irq_number, gpio_edge_interrupt, IRQ_TYPE_EDGE_BOTH, "gpio_irq_handler", data);
++
++		    if(!err)
++		    {
++		    	debug("Got IRQ %d for GPIO %d\n", irq_number, gpio);
++				return irq_number;
++		    }
++		    else
++		    {
++		    	debug("GPIO IRQ handler: trouble requesting IRQ %d error %d\n",irq_number, err);
++		    }
++		}
++		else
++		{
++			debug("Can't map GPIO %d to IRQ : error %d\n",gpio, irq_number);
++		}
++    }
++    else
++    {
++    	debug("Can't get GPIO %d\n", gpio);
++    }
++
++    return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void free_handler(void)
++{
++	_gpio_handler* handler=&_ghandler;
++
++	if(handler->gpio > 0)
++	{
++		if(handler->irq >= 0)
++		{
++			free_irq(handler->irq, (void*)handler);
++			handler->irq=-1;
++		}
++
++		gpio_free(handler->gpio);
++		handler->gpio=-1;
++	}
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_handler(int gpio)
++{
++	_gpio_handler* handler=&_ghandler;
++
++	if(handler->gpio != gpio)
++	{
++		int irq=add_irq(gpio, handler);
++
++		if(irq < 0)
++		{
++			free_handler();
++			return -1;
++		}
++
++		handler->gpio=gpio;
++		handler->irq=irq;
++		handler->last_value=-1;
++
++		return 0;
++	}
++
++	return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_timer_irq(int timer, void* data)
++{
++	int err=0;
++	int irq_number=_timers[timer].irq;
++
++	debug("Adding IRQ %d handler\n",irq_number);
++
++	err=request_irq(irq_number, timer_interrupt, 0, DRV_NAME, data);
++
++	if(!err)
++	{
++		debug("Got IRQ %d.\n", irq_number);
++		return irq_number;
++	}
++	else
++	{
++		debug("Timer IRQ handler: trouble requesting IRQ %d error %d\n",irq_number, err);
++	}
++
++    return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void clear_timer(_timer_handler* handler)
++{
++	handler->timer=-1;
++	handler->irq=-1;
++	handler->timeout=0;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void stop(void)
++{
++	unsigned long flags=0;
++
++	_timer_handler* handler=&_thandler;
++
++	spin_lock_irqsave(&_lock,flags);
++
++	if(handler->irq >= 0)
++	{
++		free_irq(handler->irq, (void*)handler);
++		clear_timer(handler);
++
++		debug("Timer stopped.\n");
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int start(int timer,unsigned int timeout)
++{
++	int irq=-1;
++	unsigned long flags=0;
++
++	_timer_handler* handler=&_thandler;
++
++	stop();
++
++	spin_lock_irqsave(&_lock,flags);
++	// need some time (10 ms) before first IRQ - even after "lock"?!
++	__raw_writel(_timer_frequency, ath79_timer_base+_timers[timer].reload_reg);
++
++	irq=add_timer_irq(timer,handler);
++
++	if(irq >= 0)
++	{
++		unsigned int real_timeout=_timer_frequency/1000000*timeout;
++
++/*		int	scale=0;
++
++		scale=timeout/100;
++		if(scale >= 2)
++		{
++			real_timeout/=100;
++			handler->ticks_in_timeout=scale;
++		}
++*/
++		handler->timer=timer;
++		handler->irq=irq;
++		handler->timeout=timeout;
++
++		__raw_writel(real_timeout, ath79_timer_base+_timers[timer].reload_reg);
++
++		debug("Timer #%d started with %u us interval.\n", timer, timeout);
++
++		spin_unlock_irqrestore(&_lock,flags);
++		return 0;
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++
++	stop();
++	return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static ssize_t run_command(struct file *file, const char __user *buf,
++                                size_t count, loff_t *ppos)
++{
++	char buffer[512];
++	char line[20];
++	char* in_pos=NULL;
++	char* end=NULL;
++	char* out_pos=NULL;
++
++	int timer=-1;
++	int gpio=-1;
++	pid_t pid=0;
++
++	if(count > 512)
++		return -EINVAL;	//	file is too big
++
++	copy_from_user(buffer, buf, count);
++	buffer[count]=0;
++
++	debug("Command is found (%u bytes length):\n%s\n",count,buffer);
++
++	in_pos=buffer;
++	end=in_pos+count-1;
++
++	while(in_pos < end)
++	{
++		timer=0;
++		gpio=-1;
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++		if(in_pos >= end) break;
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%u", &timer);
++		}
++		else
++		{
++			printk(KERN_INFO "Can't read timer number.\n");
++			break;
++		}
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%d", &gpio);
++		}
++		else
++		{
++			printk(KERN_INFO "Can't read GPIO number.\n");
++			break;
++		}
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%u", &pid);
++		}
++
++		start(timer,1000000);
++
++		add_handler(gpio);
++
++		_ghandler.counter=-1;
++		gpio_direction_output(gpio,0);
++		__raw_writel(1 << gpio, gpio_cleardataout_addr);
++		udelay(2000);
++		__raw_writel(1 << gpio, gpio_setdataout_addr);
++		udelay(20);
++		gpio_direction_input(gpio);
++
++		udelay(100000);
++
++		stop();
++		free_handler();
++
++		debug("Total %d values:\n",_ghandler.counter);
++
++/*		{
++			int i=0;
++			for(; i < _ghandler.counter; ++i)
++			{
++				printk("%d:%d, ",_ghandler.ticks[i].value,_ghandler.ticks[i].timeout);
++			}
++			printk("\n");
++		}
++*/
++		if(_ghandler.counter >= 10)
++		{
++			int i=0;
++			int b=0;
++
++			int data[5] = { 0,0,0,0,0 };
++			int octet=0;
++
++			while(_ghandler.ticks[i].timeout < 500) ++i;
++			if(	(_ghandler.ticks[i].value == 0) &&
++//				(_ghandler.ticks[i+1].timeout < 50)	&&	// 1 - differ for DHT11 and DHT22
++				(_ghandler.ticks[i+2].timeout > 65)	&&	// 0 - should be ~80
++				(_ghandler.ticks[i+3].timeout > 65)) 	// 1 - should be ~80
++			{
++				i+=4;
++				for(; i < _ghandler.counter; ++i)
++				{
++					if(_ghandler.ticks[i].value)
++					{
++						if(_ghandler.ticks[i].timeout >= 40)
++						{
++//							printk("1");
++
++							if(octet < 5)
++							{
++								data[octet]|=1 << (7-(b % 8));
++							}
++						}
++						else
++						{
++//							printk("0");
++						}
++
++						if((++b % 8) == 0)
++						{
++							if(octet < 5)
++							{
++//								printk("=%d",data[octet]);
++							}
++
++							++octet;
++
++							if(i < (_ghandler.counter-1))
++							{
++//								printk(" ");
++							}
++						}
++					}
++				}
++//				printk("\n");
++
++				{
++					int type=((data[1] == 0) && (data[3] == 0))?DHT11:DHT22;
++
++					bool isOK=false;
++
++					debug("type: %d\n",type);
++
++					if(	(((data[0]+data[1]+data[2]+data[3]) & 0xff) == data[4]) &&
++						(data[0] || data[1] || data[2] || data[3]))
++					 {
++						isOK=true;
++					 }
++
++					if(isOK)
++					 {
++						if(pid != 0)
++						{
++							struct siginfo info;
++							struct task_struct* ts=NULL;
++							unsigned short t=0;
++							unsigned short h=0;
++
++							if(type == DHT11)
++							 {
++								t=data[2]*10;
++								h=data[0]*10;
++							 }
++							 else
++							  {
++								t=((data[2] & 0x7f)*256+data[3]);
++								h=data[0]*256+data[1];
++
++								if(data[2] & 0x80)
++								{
++									t|=0x8000;
++								}
++							  }
++
++							/* send the signal */
++							memset(&info, 0, sizeof(struct siginfo));
++							info.si_signo = SIG_DHT_IRQ;
++							info.si_code = SI_QUEUE;	// this is bit of a trickery: SI_QUEUE is normally used by sigqueue from user space,
++											// and kernel space should use SI_KERNEL. But if SI_KERNEL is used the real_time data
++											// is not delivered to the user space signal handler function.
++
++							info.si_int=(h << 16) | t;
++
++							rcu_read_lock();
++							ts=pid_task(find_vpid(pid), PIDTYPE_PID);
++							rcu_read_unlock();
++
++							if(ts)
++							{
++								send_sig_info(SIG_DHT_IRQ, &info, ts);    //send the signal
++								debug("Signal sent to PID %u with parameter 0x%X\n",pid,info.si_int);
++							}
++							else
++							{
++								debug("Process with PID %u is not found.\n",pid);
++							}
++						}
++						else
++						{
++							//just print results
++							if(type == DHT11)
++							 {
++								const char* format="T:%d\tH:%d%%\n";
++
++								printk(format,
++											data[2],
++											data[0]);
++							 }
++							 else
++							  {
++								const char* format="T:%d.%1d\tH:%d.%1d%%\n";
++
++								int t=((data[2] & 0x7f)*256+data[3]);
++								int h=data[0]*256+data[1];
++
++								if(data[2] & 0x80)
++								{
++									t=-t;
++								}
++
++								printk(format,
++											t/10,t%10,
++											h/10,h%10);
++							  }
++						}
++
++						break;
++					 }
++				}
++			}
++		}
++
++		if(pid != 0)
++		{
++			struct siginfo info;
++			struct task_struct* ts=NULL;
++
++			/* send the signal */
++			memset(&info, 0, sizeof(struct siginfo));
++			info.si_signo = SIG_DHT_IRQ;
++			info.si_code = SI_QUEUE;	// this is bit of a trickery: SI_QUEUE is normally used by sigqueue from user space,
++							// and kernel space should use SI_KERNEL. But if SI_KERNEL is used the real_time data
++							// is not delivered to the user space signal handler function.
++
++			info.si_int=0;	//	means 'error'
++
++			rcu_read_lock();
++			ts=pid_task(find_vpid(pid), PIDTYPE_PID);
++			rcu_read_unlock();
++
++			if(ts)
++			{
++				send_sig_info(SIG_DHT_IRQ, &info, ts);    //send the signal
++				debug("Error sent to PID %u\n",pid);
++			}
++			else
++			{
++				debug("Error, but process with PID %u is not found.\n",pid);
++			}
++		}
++		else
++		{
++			printk(KERN_INFO "Error.\n");
++		}
++
++		break;
++	}
++
++	return count;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static const struct file_operations irq_fops = {
++//	.read = show_handlers,
++	.write = run_command,
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++struct clk	//	defined in clock.c
++{
++	unsigned long rate;
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int __init mymodule_init(void)
++{
++	struct clk* ahb_clk=clk_get(NULL,"ahb");
++	if(ahb_clk)
++	{
++		_timer_frequency=ahb_clk->rate;
++	}
++
++	ath79_timer_base = ioremap_nocache(AR71XX_RESET_BASE, AR71XX_RESET_SIZE);
++
++	gpio_addr = ioremap_nocache(AR71XX_GPIO_BASE, AR71XX_GPIO_SIZE);
++
++    gpio_readdata_addr     = gpio_addr + GPIO_OFFS_READ;
++    gpio_setdataout_addr   = gpio_addr + GPIO_OFFS_SET;
++    gpio_cleardataout_addr = gpio_addr + GPIO_OFFS_CLEAR;
++
++	_ghandler.gpio=-1;
++	_ghandler.irq=-1;
++	_ghandler.counter=-1;
++
++	clear_timer(&_thandler);
++
++	in_file=debugfs_create_file(FILE_NAME, 0666, NULL, NULL, &irq_fops);
++
++	printk(KERN_INFO "Waiting for commands in file /sys/kernel/debug/" FILE_NAME ".\n");
++
++    return 0;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void __exit mymodule_exit(void)
++{
++	stop();
++	free_handler();
++
++	debugfs_remove(in_file);
++
++	return;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++module_init(mymodule_init);
++module_exit(mymodule_exit);
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Dmitriy Zherebkov (Black Swift team)");
++
++////////////////////////////////////////////////////////////////////////////////////////////
+Index: package/kernel/gpio-irq-dht/src/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-irq-dht/src/Makefile
+@@ -0,0 +1 @@
++obj-m += gpio-irq-dht.o
+Index: package/kernel/gpio-irq-handler/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-irq-handler/Makefile
+@@ -0,0 +1,45 @@
++#
++# Copyright (C) 2008-2012 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++include $(INCLUDE_DIR)/kernel.mk
++
++PKG_NAME:=gpio-irq-handler
++PKG_RELEASE:=1
++
++include $(INCLUDE_DIR)/package.mk
++
++define KernelPackage/gpio-irq-handler
++  SUBMENU:=Other modules
++  DEPENDS:=@!LINUX_3_3
++  TITLE:=GPIO IRQ handler
++  FILES:=$(PKG_BUILD_DIR)/gpio-irq-handler.ko
++  AUTOLOAD:=$(call AutoLoad,30,gpio-irq-handler,1)
++  KCONFIG:=
++endef
++
++define KernelPackage/gpio-irq-handler/description
++ This is a kernel to userspace GPIO IRQ translator for AR9331 devices.
++endef
++
++MAKE_OPTS:= \
++	ARCH="$(LINUX_KARCH)" \
++	CROSS_COMPILE="$(TARGET_CROSS)" \
++	SUBDIRS="$(PKG_BUILD_DIR)"
++
++define Build/Prepare
++	mkdir -p $(PKG_BUILD_DIR)
++	$(CP) ./src/* $(PKG_BUILD_DIR)/
++endef
++
++define Build/Compile
++	$(MAKE) -C "$(LINUX_DIR)" \
++		$(MAKE_OPTS) \
++		modules
++endef
++
++$(eval $(call KernelPackage,gpio-irq-handler))
+Index: package/kernel/gpio-irq-handler/src/gpio-irq-handler.c
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-irq-handler/src/gpio-irq-handler.c
+@@ -0,0 +1,490 @@
++/*
++ *  GPIO IRQ handler for AR9331
++ *
++ *    Copyright (C) 2013-2015 Gerhard Bertelsmann <info@gerhard-bertelsmann.de>
++ *    Copyright (C) 2015 Dmitriy Zherebkov <dzh@black-swift.com>
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/gpio.h>
++#include <linux/interrupt.h>
++
++#include <asm/mach-ath79/ar71xx_regs.h>
++#include <asm/mach-ath79/ath79.h>
++#include <asm/mach-ath79/irq.h>
++
++#include <asm/siginfo.h>
++#include <linux/rcupdate.h>
++#include <linux/sched.h>
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
++
++//#define DEBUG_OUT
++
++#ifdef	DEBUG_OUT
++#define debug(fmt,args...)	printk (KERN_INFO fmt ,##args)
++#else
++#define debug(fmt,args...)
++#endif	/* DEBUG_OUT */
++
++//#define SIG_GPIO_IRQ	(SIGRTMIN+10)	// SIGRTMIN is different in Kernel and User modes
++#define SIG_GPIO_IRQ	42				// So we have to hardcode this value
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++void __iomem *ath79_gpio_base;
++
++#define DRV_NAME	"GPIO IRQ handler"
++#define FILE_NAME	"gpio-irq"
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define MAX_PROCESSES	10
++
++typedef struct
++{
++	int		gpio;
++	int		irq;
++	int		last_value;
++
++	pid_t	processes[MAX_PROCESSES];
++} _gpio_handler;
++
++#define TOTAL_GPIO	30
++
++static _gpio_handler	all_handlers[TOTAL_GPIO];
++
++static struct dentry* in_file;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_space(char symbol)
++{
++	return (symbol == ' ') || (symbol == '\t');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_digit(char symbol)
++{
++	return (symbol >= '0') && (symbol <= '9');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_eol(char symbol)
++{
++	return (symbol == '\n') || (symbol == '\r');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static irqreturn_t gpio_edge_interrupt(int irq, void* dev_id)
++{
++	_gpio_handler* handler=(_gpio_handler*)dev_id;
++
++	if(handler && (handler->irq == irq))
++	{
++		int val=0;
++
++		debug("Got _handler!\n");
++
++		val=(__raw_readl(ath79_gpio_base + AR71XX_GPIO_REG_IN) >> handler->gpio) & 1;
++
++		if(val != handler->last_value)
++		{
++			struct siginfo info;
++			struct task_struct* ts=NULL;
++
++			int i=0;
++
++			handler->last_value=val;
++			debug("IRQ %d event (GPIO %d) - new value is %d!\n", irq, handler->gpio, val);
++
++			/* send the signal */
++			memset(&info, 0, sizeof(struct siginfo));
++			info.si_signo = SIG_GPIO_IRQ;
++			info.si_code = SI_QUEUE;	// this is bit of a trickery: SI_QUEUE is normally used by sigqueue from user space,
++							// and kernel space should use SI_KERNEL. But if SI_KERNEL is used the real_time data
++							// is not delivered to the user space signal handler function.
++
++			for(i=0; i < MAX_PROCESSES; ++i)
++			{
++				pid_t pid=handler->processes[i];
++
++				if(pid == 0) break;
++
++				info.si_int=(handler->gpio << 24) | (val & 1);
++
++				rcu_read_lock();
++				ts=pid_task(find_vpid(pid), PIDTYPE_PID);
++				rcu_read_unlock();
++
++				if(ts == NULL)
++				{
++					debug("PID %u is not found, remove it please.\n",pid);
++				}
++				else
++				{
++					debug("Sending signal to PID %u.\n",pid);
++					send_sig_info(SIG_GPIO_IRQ, &info, ts);    //send the signal
++				}
++			}
++		}
++	}
++	else
++	{
++		debug("IRQ %d event - no handlers found!\n",irq);
++	}
++
++	return(IRQ_HANDLED);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_irq(int gpio,void* data)
++{
++    if(gpio_request(gpio, DRV_NAME) >= 0)
++    {
++		int irq_number=gpio_to_irq(gpio);
++
++		if(irq_number >= 0)
++		{
++		    int err = request_irq(irq_number, gpio_edge_interrupt, IRQ_TYPE_EDGE_BOTH, "gpio_irq_handler", data);
++
++		    if(!err)
++		    {
++		    	debug("Got IRQ %d for GPIO %d\n", irq_number, gpio);
++				return irq_number;
++		    }
++		    else
++		    {
++		    	debug("GPIO IRQ handler: trouble requesting IRQ %d error %d\n",irq_number, err);
++		    }
++		}
++		else
++		{
++			debug("Can't map GPIO %d to IRQ : error %d\n",gpio, irq_number);
++		}
++    }
++    else
++    {
++    	debug("Can't get GPIO %d\n", gpio);
++    }
++
++    return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void free_handler(int gpio)
++{
++	if((gpio >= 0) && (gpio < TOTAL_GPIO))
++	{
++		_gpio_handler* handler=&all_handlers[gpio];
++
++		if(handler->gpio == gpio)
++		{
++			int i=0;
++
++		    if(handler->irq >= 0)
++			{
++				free_irq(handler->irq, (void*)handler);
++				handler->irq=-1;
++			}
++
++		    gpio_free(gpio);
++			handler->gpio=-1;
++
++			for(; i < MAX_PROCESSES; ++i)
++			{
++				handler->processes[i]=0;
++			}
++		}
++	}
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void remove_handler(int gpio,pid_t pid)
++{
++	if((gpio >= 0) && (gpio < TOTAL_GPIO))
++	{
++		_gpio_handler* handler=&all_handlers[gpio];
++
++		if(handler->gpio == gpio)
++		{
++			int i=0;
++
++			for(i=0; i < MAX_PROCESSES; ++i)
++			{
++				if(handler->processes[i] == pid)
++				{
++					for(++i; i < MAX_PROCESSES; ++i)
++					{
++						handler->processes[i-1]=handler->processes[i];
++					}
++					handler->processes[i-1]=0;
++
++					return;
++				}
++			}
++
++			debug("Handler for GPIO %d to PID %u is not found.\n", gpio, pid);
++		}
++	}
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_handler(int gpio, pid_t pid)
++{
++	if((gpio >= 0) && (gpio < TOTAL_GPIO))
++	{
++		_gpio_handler* handler=&all_handlers[gpio];
++		int p=0;
++
++		if(handler->gpio != gpio)
++		{
++			int irq=add_irq(gpio, handler);
++
++			if(irq < 0)
++			{
++				free_handler(gpio);
++				return -1;
++			}
++
++			handler->gpio=gpio;
++			handler->irq=irq;
++			handler->last_value=-1;
++		}
++
++		while((handler->processes[p] > 0) && (handler->processes[p] != pid)) ++p;
++
++		if(p < MAX_PROCESSES)
++		{
++			handler->processes[p]=pid;
++			return handler->irq;
++		}
++		else
++		{
++			debug("Can't add handler: %d processes already handle GPIO %d.\n", p, gpio);
++		}
++	}
++
++	return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static ssize_t run_command(struct file *file, const char __user *buf,
++                                size_t count, loff_t *ppos)
++{
++	char buffer[512];
++	char line[20];
++	char* in_pos=NULL;
++	char* end=NULL;
++	char* out_pos=NULL;
++
++	int add=0;
++	int gpio=-1;
++	int pid=0;
++
++	if(count > 512)
++		return -EINVAL;	//	file is too big
++
++	copy_from_user(buffer, buf, count);
++	buffer[count]=0;
++
++	debug("Command is found (%u bytes length):\n%s\n",count,buffer);
++
++	in_pos=buffer;
++	end=in_pos+count-1;
++
++	while(in_pos < end)
++	{
++		add=0;
++		gpio=-1;
++		pid=0;
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++		if(in_pos >= end) break;
++
++		if(*in_pos == '+')
++		{
++			add=1;
++		}
++		else if(*in_pos == '-')
++		{
++			add=0;
++		}
++		else if(*in_pos == '?')
++		{
++			//	just print all handlers
++			int i,j;
++
++			for(i=0; i < TOTAL_GPIO; ++i)
++			{
++				if(all_handlers[i].gpio != -1)
++				{
++					printk(KERN_INFO "GPIO %d (IRQ %d): ",all_handlers[i].gpio,all_handlers[i].irq);
++
++					for(j=0; j < MAX_PROCESSES; ++j)
++					{
++						if(all_handlers[i].processes[j] != 0)
++						{
++							printk("%u ",all_handlers[i].processes[j]);
++						}
++						else
++						{
++							break;
++						}
++					}
++
++					printk("\n");
++				}
++			}
++
++			return count;
++		}
++		else
++		{
++			printk(KERN_INFO "Wrong command '%c'.\n", *in_pos);
++			break;
++		}
++		++in_pos;
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%d", &gpio);
++		}
++		else
++		{
++			printk(KERN_INFO "Can't read GPIO number.\n");
++			break;
++		}
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%u", &pid);
++		}
++		else
++		{
++			if(add)
++			{
++				printk(KERN_INFO "Can't read PID.\n");
++				break;
++			}
++		}
++
++		if(add)
++		{
++			debug("Trying to add handler for GPIO %d to PID %u.\n",gpio,pid);
++			add_handler(gpio,pid);
++		}
++		else
++		{
++			if(pid)
++			{
++				_gpio_handler* handler=&all_handlers[gpio];
++
++				debug("Trying to remove handler for GPIO %d to PID %u.\n",gpio,pid);
++				remove_handler(gpio,pid);
++
++				if(handler->processes[0] == 0)
++				{
++					debug("It was the last handler. Let's free IRQ %d.\n",handler->irq);
++					free_handler(gpio);
++				}
++			}
++			else
++			{
++				debug("Trying to remove all handlers for GPIO %d.\n",gpio);
++				free_handler(gpio);
++			}
++		}
++
++		while((in_pos < end) && (is_space(*in_pos) || is_eol(*in_pos))) ++in_pos;	// next line
++	}
++
++	return count;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static const struct file_operations irq_fops = {
++//	.read = show_handlers,
++	.write = run_command,
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int __init mymodule_init(void)
++{
++    int i=0,j=0;
++
++	ath79_gpio_base = ioremap_nocache(AR71XX_GPIO_BASE, AR71XX_GPIO_SIZE);
++
++	for(i=0; i < TOTAL_GPIO; ++i)
++	{
++		all_handlers[i].gpio=-1;
++		all_handlers[i].irq=-1;
++		all_handlers[i].gpio=-1;
++
++		for(j=0; j < MAX_PROCESSES; ++j)
++		{
++			all_handlers[i].processes[j]=0;
++		}
++	}
++
++	in_file=debugfs_create_file(FILE_NAME, 0666, NULL, NULL, &irq_fops);
++
++	debug("Waiting for commands in file /sys/kernel/debug/" FILE_NAME ".\n");
++
++    return 0;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void __exit mymodule_exit(void)
++{
++	int i=0;
++
++	for(; i < TOTAL_GPIO; ++i)
++	{
++		free_handler(i);
++	}
++
++	debugfs_remove(in_file);
++
++	return;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++module_init(mymodule_init);
++module_exit(mymodule_exit);
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Dmitriy Zherebkov (Black Swift team)");
++
++////////////////////////////////////////////////////////////////////////////////////////////
+Index: package/kernel/gpio-irq-handler/src/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-irq-handler/src/Makefile
+@@ -0,0 +1 @@
++obj-m += gpio-irq-handler.o
+Index: package/kernel/gpio-sqwave/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-sqwave/Makefile
+@@ -0,0 +1,45 @@
++#
++# Copyright (C) 2008-2012 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++include $(INCLUDE_DIR)/kernel.mk
++
++PKG_NAME:=gpio-sqwave
++PKG_RELEASE:=1
++
++include $(INCLUDE_DIR)/package.mk
++
++define KernelPackage/gpio-sqwave
++  SUBMENU:=Other modules
++  DEPENDS:=@!LINUX_3_3
++  TITLE:=Timer IRQ handler
++  FILES:=$(PKG_BUILD_DIR)/gpio-sqwave.ko
++  AUTOLOAD:=$(call AutoLoad,30,gpio-sqwave,1)
++  KCONFIG:=
++endef
++
++define KernelPackage/gpio-sqwave/description
++ This is GPIO square wave generator for AR9331 devices.
++endef
++
++MAKE_OPTS:= \
++	ARCH="$(LINUX_KARCH)" \
++	CROSS_COMPILE="$(TARGET_CROSS)" \
++	SUBDIRS="$(PKG_BUILD_DIR)"
++
++define Build/Prepare
++	mkdir -p $(PKG_BUILD_DIR)
++	$(CP) ./src/* $(PKG_BUILD_DIR)/
++endef
++
++define Build/Compile
++	$(MAKE) -C "$(LINUX_DIR)" \
++		$(MAKE_OPTS) \
++		modules
++endef
++
++$(eval $(call KernelPackage,gpio-sqwave))
+Index: package/kernel/gpio-sqwave/src/gpio-sqwave.c
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-sqwave/src/gpio-sqwave.c
+@@ -0,0 +1,426 @@
++/*
++ *  GPIO square wave generator for AR9331
++ *
++ *    Copyright (C) 2013-2015 Gerhard Bertelsmann <info@gerhard-bertelsmann.de>
++ *    Copyright (C) 2015 Dmitriy Zherebkov <dzh@black-swift.com>
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/timer.h>
++#include <linux/interrupt.h>
++#include <linux/gpio.h>
++#include <linux/clk.h>
++
++#include <asm/mach-ath79/ar71xx_regs.h>
++#include <asm/mach-ath79/ath79.h>
++#include <asm/mach-ath79/irq.h>
++
++#include <asm/siginfo.h>
++#include <linux/rcupdate.h>
++#include <linux/sched.h>
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define DRV_NAME	"gpio-sqwave"
++#define FILE_NAME	"sqwave"
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int timer=3;
++module_param(timer, int, 0);
++MODULE_PARM_DESC(timer, "system timer number (0-3)");
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++//#define DEBUG_OUT
++
++#ifdef	DEBUG_OUT
++#define debug(fmt,args...)	printk (KERN_INFO DRV_NAME ": " fmt ,##args)
++#else
++#define debug(fmt,args...)
++#endif	/* DEBUG_OUT */
++
++static unsigned int _timer_frequency=200000000;
++static spinlock_t	_lock;
++static unsigned int	_gpio_prev=0;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define ATH79_TIMER0_IRQ		ATH79_MISC_IRQ(0)
++#define AR71XX_TIMER0_RELOAD	0x04
++
++#define ATH79_TIMER1_IRQ		ATH79_MISC_IRQ(8)
++#define AR71XX_TIMER1_RELOAD	0x98
++
++#define ATH79_TIMER2_IRQ		ATH79_MISC_IRQ(9)
++#define AR71XX_TIMER2_RELOAD	0xA0
++
++#define ATH79_TIMER3_IRQ		ATH79_MISC_IRQ(10)
++#define AR71XX_TIMER3_RELOAD	0xA8
++
++static struct _timer_desc_struct
++{
++	unsigned int	irq;
++	unsigned int	reload_reg;
++} _timers[4]=
++{
++		{	ATH79_TIMER0_IRQ, AR71XX_TIMER0_RELOAD	},
++		{	ATH79_TIMER1_IRQ, AR71XX_TIMER1_RELOAD	},
++		{	ATH79_TIMER2_IRQ, AR71XX_TIMER2_RELOAD	},
++		{	ATH79_TIMER3_IRQ, AR71XX_TIMER3_RELOAD	}
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define GPIO_OFFS_READ		0x04
++#define GPIO_OFFS_SET		0x0C
++#define GPIO_OFFS_CLEAR		0x10
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++void __iomem *ath79_timer_base=NULL;
++
++void __iomem *gpio_addr=NULL;
++void __iomem *gpio_readdata_addr=NULL;
++void __iomem *gpio_setdataout_addr=NULL;
++void __iomem *gpio_cleardataout_addr=NULL;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++typedef struct
++{
++	int					timer;
++	int					irq;
++	int					gpio;
++	unsigned int		frequency;
++	int					value;
++} _timer_handler;
++
++static _timer_handler	_handler;
++
++static struct dentry* in_file;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_space(char symbol)
++{
++	return (symbol == ' ') || (symbol == '\t');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_digit(char symbol)
++{
++	return (symbol >= '0') && (symbol <= '9');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static irqreturn_t timer_interrupt(int irq, void* dev_id)
++{
++	_timer_handler* handler=(_timer_handler*)dev_id;
++
++	if(handler && (handler->irq == irq) && (handler->gpio >= 0))
++	{
++		if(handler->value)
++		{
++			__raw_writel(1 << handler->gpio, gpio_setdataout_addr);
++		}
++		else
++		{
++			__raw_writel(1 << handler->gpio, gpio_cleardataout_addr);
++		}
++
++		handler->value=!handler->value;
++	}
++
++	return(IRQ_HANDLED);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_irq(void* data)
++{
++	int err=0;
++	int irq_number=_timers[timer].irq;
++
++	debug("Adding IRQ %d handler\n",irq_number);
++
++	err=request_irq(irq_number, timer_interrupt, 0, DRV_NAME, data);
++
++	if(!err)
++	{
++		debug("Got IRQ %d.\n", irq_number);
++		return irq_number;
++	}
++	else
++	{
++		debug("Timer IRQ handler: trouble requesting IRQ %d error %d\n",irq_number, err);
++	}
++
++    return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void stop(void)
++{
++	unsigned long flags=0;
++
++	spin_lock_irqsave(&_lock,flags);
++
++	if(_handler.irq >= 0)
++	{
++		free_irq(_handler.irq, (void*)&_handler);
++		_handler.irq=-1;
++
++		_handler.timer=-1;
++
++		if(_handler.gpio >= 0)
++		{
++			//	restore previous GPIO state
++			if(_gpio_prev)
++			{
++				__raw_writel(1 << _handler.gpio,gpio_setdataout_addr);
++			}
++			else
++			{
++				__raw_writel(1 << _handler.gpio,gpio_cleardataout_addr);
++			}
++
++			gpio_free(_handler.gpio);
++			_handler.gpio=-1;
++		}
++
++		_handler.frequency=0;
++		_handler.value=0;
++
++		debug("Timer stopped.\n");
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int start(int gpio,unsigned int frequency)
++{
++	unsigned int timeout=0;
++	int irq=-1;
++	unsigned long flags=0;
++
++	stop();
++
++	spin_lock_irqsave(&_lock,flags);
++	// need some time (10 ms) before first IRQ - even after "lock"?!
++	__raw_writel(_timer_frequency/100, ath79_timer_base+_timers[timer].reload_reg);
++
++	irq=add_irq(&_handler);
++
++	if(irq >= 0)
++	{
++		_handler.timer=timer;
++		_handler.irq=irq;
++
++		gpio_request(gpio, DRV_NAME);
++		if(gpio_direction_output(gpio,0) == 0)
++		{
++			_handler.gpio=gpio;
++
++			// save current GPIO state
++			_gpio_prev=__raw_readl(gpio_readdata_addr+GPIO_OFFS_READ) & (1 << gpio);
++
++			timeout=_timer_frequency/frequency/2;
++			__raw_writel(timeout, ath79_timer_base+_timers[timer].reload_reg);
++
++			_handler.frequency=frequency;
++
++			debug("New frequency: %u.\n", frequency);
++
++			spin_unlock_irqrestore(&_lock,flags);
++			return 0;
++		}
++		else
++		{
++			debug("Can't set GPIO %d as output.\n", gpio);
++		}
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++
++	stop();
++	return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static ssize_t run_command(struct file *file, const char __user *buf,
++                                size_t count, loff_t *ppos)
++{
++	char buffer[512];
++	char line[20];
++	char* in_pos=NULL;
++	char* end=NULL;
++	char* out_pos=NULL;
++
++	if(count > 512)
++		return -EINVAL;	//	file is too big
++
++	copy_from_user(buffer, buf, count);
++	buffer[count]=0;
++
++	debug("Command is found (%u bytes length):\n%s\n",count,buffer);
++
++	in_pos=buffer;
++	end=in_pos+count-1;
++
++	while(in_pos < end)
++	{
++		unsigned int gpio=-1;
++		unsigned int frequency=0;
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++		if(in_pos >= end) break;
++
++		if(*in_pos == '-')
++		{
++			stop();
++			return count;
++		}
++		else if(*in_pos == '?')
++		{
++			if(_handler.frequency)
++			{
++				printk(KERN_INFO DRV_NAME " is running on GPIO %d with frequency %u Hz (system timer %d).\n",
++						_handler.gpio,_handler.frequency,_handler.timer);
++			}
++			else
++			{
++				printk(KERN_INFO DRV_NAME " is not running (timer %d selected).\n",timer);
++			}
++
++			break;
++		}
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%d", &gpio);
++		}
++		else
++		{
++			printk(KERN_INFO DRV_NAME " can't read GPIO number.\n");
++			break;
++		}
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%u", &frequency);
++		}
++		else
++		{
++			printk(KERN_INFO DRV_NAME " can't read frequency.\n");
++			break;
++		}
++
++		if((gpio >= 0) && (frequency > 0))
++		{
++			if(start(gpio,frequency) >= 0)
++			{
++				debug("Started!\n");
++				break;
++			}
++		}
++
++		printk(KERN_INFO DRV_NAME " can't start.\n");
++		return 0;
++	}
++
++	return count;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static const struct file_operations irq_fops =
++{
++	.write = run_command,
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++struct clk	//	defined in clock.c
++{
++	unsigned long rate;
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int __init mymodule_init(void)
++{
++	struct clk* ahb_clk=clk_get(NULL,"ahb");
++	if(ahb_clk)
++	{
++		_timer_frequency=ahb_clk->rate;
++	}
++
++ 	ath79_timer_base=ioremap_nocache(AR71XX_RESET_BASE, AR71XX_RESET_SIZE);
++
++ 	gpio_addr=ioremap_nocache(AR71XX_GPIO_BASE, AR71XX_GPIO_SIZE);
++
++    gpio_readdata_addr     = gpio_addr + GPIO_OFFS_READ;
++    gpio_setdataout_addr   = gpio_addr + GPIO_OFFS_SET;
++    gpio_cleardataout_addr = gpio_addr + GPIO_OFFS_CLEAR;
++
++	_handler.timer=-1;
++	_handler.irq=-1;
++	_handler.gpio=-1;
++	_handler.frequency=0;
++	_handler.value=0;
++
++	in_file=debugfs_create_file(FILE_NAME, 0200, NULL, NULL, &irq_fops);
++
++	debug("System timer #%d frequency is %d Hz.\n",timer,_timer_frequency);
++	printk(KERN_INFO DRV_NAME " is waiting for commands in file /sys/kernel/debug/" FILE_NAME ".\n");
++
++    return 0;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void __exit mymodule_exit(void)
++{
++	stop();
++
++	debugfs_remove(in_file);
++
++	return;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++module_init(mymodule_init);
++module_exit(mymodule_exit);
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Dmitriy Zherebkov (Black Swift team)");
++
++////////////////////////////////////////////////////////////////////////////////////////////
+Index: package/kernel/gpio-sqwave/src/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-sqwave/src/Makefile
+@@ -0,0 +1 @@
++obj-m += gpio-sqwave.o
+Index: package/kernel/gpio-timer-pwm/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-timer-pwm/Makefile
+@@ -0,0 +1,45 @@
++#
++# Copyright (C) 2008-2012 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++include $(INCLUDE_DIR)/kernel.mk
++
++PKG_NAME:=gpio-timer-pwm
++PKG_RELEASE:=1
++
++include $(INCLUDE_DIR)/package.mk
++
++define KernelPackage/gpio-timer-pwm
++  SUBMENU:=Other modules
++  DEPENDS:=@!LINUX_3_3
++  TITLE:=GPIO PWM with AR9331 timer IRQ
++  FILES:=$(PKG_BUILD_DIR)/gpio-timer-pwm.ko
++  AUTOLOAD:=$(call AutoLoad,30,gpio-timer-pwm,1)
++  KCONFIG:=
++endef
++
++define KernelPackage/gpio-timer-pwm/description
++ This is GPIO PWM generator for AR9331 devices based on hardware timer IRQ.
++endef
++
++MAKE_OPTS:= \
++	ARCH="$(LINUX_KARCH)" \
++	CROSS_COMPILE="$(TARGET_CROSS)" \
++	SUBDIRS="$(PKG_BUILD_DIR)"
++
++define Build/Prepare
++	mkdir -p $(PKG_BUILD_DIR)
++	$(CP) ./src/* $(PKG_BUILD_DIR)/
++endef
++
++define Build/Compile
++	$(MAKE) -C "$(LINUX_DIR)" \
++		$(MAKE_OPTS) \
++		modules
++endef
++
++$(eval $(call KernelPackage,gpio-timer-pwm))
+Index: package/kernel/gpio-timer-pwm/src/gpio-timer-pwm.c
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-timer-pwm/src/gpio-timer-pwm.c
+@@ -0,0 +1,695 @@
++/*
++ *  GPIO PWM generator for AR9331 with hardware timer IRQ
++ *
++ *    Copyright (C) 2013-2015 Gerhard Bertelsmann <info@gerhard-bertelsmann.de>
++ *    Copyright (C) 2015 Dmitriy Zherebkov <dzh@black-swift.com>
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/timer.h>
++#include <linux/interrupt.h>
++#include <linux/gpio.h>
++#include <linux/clk.h>
++
++#include <asm/mach-ath79/ar71xx_regs.h>
++#include <asm/mach-ath79/ath79.h>
++#include <asm/mach-ath79/irq.h>
++
++#include <asm/siginfo.h>
++#include <linux/rcupdate.h>
++#include <linux/sched.h>
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define DRV_NAME	"gpio-timer-pwm"
++#define FILE_NAME	"timer-pwm"
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int timer=3;
++module_param(timer, int, 0);
++MODULE_PARM_DESC(timer, "system timer number (0-3)");
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++//#define DEBUG_OUT
++
++#ifdef	DEBUG_OUT
++#define debug(fmt,args...)	printk (KERN_INFO DRV_NAME ": " fmt ,##args)
++#else
++#define debug(fmt,args...)
++#endif	/* DEBUG_OUT */
++
++static unsigned int _timer_frequency=200000000;
++static spinlock_t	_lock;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define ATH79_TIMER0_IRQ		ATH79_MISC_IRQ(0)
++#define AR71XX_TIMER0_RELOAD	0x04
++
++#define ATH79_TIMER1_IRQ		ATH79_MISC_IRQ(8)
++#define AR71XX_TIMER1_RELOAD	0x98
++
++#define ATH79_TIMER2_IRQ		ATH79_MISC_IRQ(9)
++#define AR71XX_TIMER2_RELOAD	0xA0
++
++#define ATH79_TIMER3_IRQ		ATH79_MISC_IRQ(10)
++#define AR71XX_TIMER3_RELOAD	0xA8
++
++static struct _timer_desc_struct
++{
++	unsigned int	irq;
++	unsigned int	reload_reg;
++} _timers[4]=
++{
++		{	ATH79_TIMER0_IRQ, AR71XX_TIMER0_RELOAD	},
++		{	ATH79_TIMER1_IRQ, AR71XX_TIMER1_RELOAD	},
++		{	ATH79_TIMER2_IRQ, AR71XX_TIMER2_RELOAD	},
++		{	ATH79_TIMER3_IRQ, AR71XX_TIMER3_RELOAD	}
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define GPIO_OFFS_READ		0x04
++#define GPIO_OFFS_SET		0x0C
++#define GPIO_OFFS_CLEAR		0x10
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++void __iomem *ath79_timer_base=NULL;
++
++void __iomem *gpio_addr=NULL;
++void __iomem *gpio_readdata_addr=NULL;
++void __iomem *gpio_setdataout_addr=NULL;
++void __iomem *gpio_cleardataout_addr=NULL;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++typedef struct
++{
++	int				timer;
++	int				irq;
++
++	unsigned int	timeout;			//	allways microseconds
++
++	unsigned int	gpio_mask;
++
++	unsigned int	current_tick;		//	ticks counter
++	unsigned int	ticks_in_timeout;	//	total ticks we should get
++
++	unsigned int	current_time;		//	microseconds since interval started
++	unsigned int	current_interval;	//	current_time overflow counter
++} _timer_handler;
++
++static _timer_handler	_thandler;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++typedef struct
++{
++	int				gpio;
++	int				interval;			//	allways microseconds
++	int				hl_part;			//	hi-level part of PWM, allways microseconds
++
++	int				old_value;
++	int				cur_value;
++
++	unsigned int	next_time;			//	next time we'll change GPIO state
++	unsigned int	next_interval;		//	next_time overflow counter
++
++	int				demo_mode;			//	1 if demo mode
++	int				one_step;			//	repeat one_step times for every 1% of interval
++	int				steps;
++	int				increment;
++} _gpio_handler;
++
++#define TOTAL_GPIO	30
++static _gpio_handler	all_handlers[TOTAL_GPIO];
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static struct dentry* in_file;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_space(char symbol)
++{
++	return (symbol == ' ') || (symbol == '\t');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_digit(char symbol)
++{
++	return (symbol >= '0') && (symbol <= '9');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_eol(char symbol)
++{
++	return (symbol == '\n') || (symbol == '\r');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void check_gpio(_gpio_handler* handler)
++{
++	if(handler->gpio != -1)
++	{
++		if(	(_thandler.current_time >= handler->next_time) ||
++			(_thandler.current_interval > handler->next_interval))
++		{
++			int next_timeout=handler->cur_value?(handler->interval-handler->hl_part):handler->hl_part;
++
++			handler->cur_value=!handler->cur_value;
++			if(handler->cur_value)
++			{
++				__raw_writel(1 << handler->gpio, gpio_setdataout_addr);
++			}
++			else
++			{
++				__raw_writel(1 << handler->gpio, gpio_cleardataout_addr);
++			}
++
++			handler->next_time+=next_timeout;
++
++			if(handler->next_time < next_timeout)
++			{
++				//	overflow!
++				++(handler->next_interval);
++			}
++
++			if(handler->demo_mode && (handler->cur_value == 0))
++			{
++				if(++(handler->steps) == handler->one_step)
++				{
++					handler->steps=0;
++
++					handler->hl_part+=handler->increment;
++
++					if(handler->hl_part > handler->interval)
++					{
++						handler->hl_part=handler->interval;
++						handler->increment=-handler->increment;
++					}
++					else if(handler->hl_part < 0)
++					{
++						handler->hl_part=0;
++						handler->increment=-handler->increment;
++					}
++				}
++			}
++		}
++	}
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static irqreturn_t timer_interrupt(int irq, void* dev_id)
++{
++	_timer_handler* handler=(_timer_handler*)dev_id;
++
++	if(handler && (handler->irq == irq))
++	{
++		if(++(handler->current_tick) < handler->ticks_in_timeout)
++		{
++			return (IRQ_HANDLED);
++		}
++
++		handler->current_tick=0;
++
++		handler->current_time+=handler->timeout;
++		if(handler->current_time < handler->timeout)
++		{
++			//	overflow!
++			++(handler->current_interval);
++		}
++
++		if(handler->gpio_mask)
++		{
++			int i=0;
++			unsigned int mask=1;
++			for(; i < TOTAL_GPIO; ++i, mask <<= 1)
++			{
++				if(handler->gpio_mask & mask) check_gpio(&all_handlers[i]);
++			}
++		}
++	}
++
++	return (IRQ_HANDLED);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_irq(void* data)
++{
++	int err=0;
++	int irq_number=_timers[timer].irq;
++
++	debug("Adding IRQ %d handler\n",irq_number);
++
++	err=request_irq(irq_number, timer_interrupt, 0, DRV_NAME, data);
++
++	if(!err)
++	{
++		debug("Got IRQ %d.\n", irq_number);
++		return irq_number;
++	}
++	else
++	{
++		debug("Timer IRQ handler: trouble requesting IRQ %d error %d\n",irq_number, err);
++	}
++
++    return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void remove_gpio(int gpio)
++{
++	if((gpio >= 0) && (gpio < TOTAL_GPIO))
++	{
++		_gpio_handler* handler=&all_handlers[gpio];
++		if(handler->gpio == gpio)
++		{
++			//	restore previous GPIO state
++			if(handler->old_value)
++			{
++				__raw_writel(1 << handler->gpio,gpio_setdataout_addr);
++			}
++			else
++			{
++				__raw_writel(1 << handler->gpio,gpio_cleardataout_addr);
++			}
++
++			gpio_free(handler->gpio);
++
++			handler->gpio=-1;
++
++			_thandler.gpio_mask&=~(1 << gpio);
++		}
++	}
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void add_gpio(int gpio,unsigned int interval,unsigned int hl_part)
++{
++	if((gpio >= 0) && (gpio < TOTAL_GPIO))
++	{
++		_gpio_handler* handler=&all_handlers[gpio];
++		unsigned long flags=0;
++
++		spin_lock_irqsave(&_lock,flags);
++
++		if(handler->gpio != gpio)
++		{
++			//	not running yet
++			gpio_request(gpio, DRV_NAME);
++			if(gpio_direction_output(gpio,0) != 0)
++			{
++				debug("Can't set GPIO %d as output.\n", gpio);
++				spin_unlock_irqrestore(&_lock,flags);
++				return;
++			}
++
++			handler->gpio=gpio;
++			// save current GPIO state
++			handler->old_value=__raw_readl(gpio_readdata_addr+GPIO_OFFS_READ) & (1 << gpio);
++
++			handler->next_time=_thandler.current_time;
++			handler->next_interval=_thandler.current_interval;
++
++			handler->cur_value=1;	//	hi level first
++			handler->next_time+=handler->hl_part;
++			if(handler->next_time < handler->hl_part)
++			{
++				//	overflow!
++				++(handler->next_interval);
++			}
++
++			handler->demo_mode=0;
++
++			_thandler.gpio_mask|=(1 << gpio);
++		}
++
++		handler->interval=interval;
++		handler->hl_part=hl_part;
++
++		spin_unlock_irqrestore(&_lock,flags);
++	}
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void stop(void)
++{
++	unsigned long flags=0;
++
++	spin_lock_irqsave(&_lock,flags);
++
++	if(_thandler.irq >= 0)
++	{
++		free_irq(_thandler.irq, (void*)&_thandler);
++		_thandler.irq=-1;
++
++		_thandler.timer=-1;
++		_thandler.timeout=0;
++
++		if(_thandler.gpio_mask)
++		{
++			int i=0;
++			for(; i < TOTAL_GPIO; ++i)
++			{
++				remove_gpio(i);
++			}
++			_thandler.gpio_mask=0;
++		}
++
++		_thandler.current_tick=0;
++		_thandler.ticks_in_timeout=1;
++
++		_thandler.current_time=0;
++		_thandler.current_interval=0;
++
++		debug("Timer stopped.\n");
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int start(unsigned int timeout)
++{
++	int irq=-1;
++	unsigned long flags=0;
++
++	stop();
++
++	spin_lock_irqsave(&_lock,flags);
++	// need some time (10 ms) before first IRQ - even after "lock"?!
++	__raw_writel(_timer_frequency/100, ath79_timer_base+_timers[timer].reload_reg);
++
++	irq=add_irq(&_thandler);
++
++	if(irq >= 0)
++	{
++		unsigned int real_timeout=_timer_frequency/1000000*timeout;
++
++		_thandler.timer=timer;
++		_thandler.irq=irq;
++
++		__raw_writel(real_timeout, ath79_timer_base+_timers[timer].reload_reg);
++
++		_thandler.timeout=timeout;
++
++		debug("Timer #%d started with %u us interval.\n", _thandler.timer, _thandler.timeout);
++
++		spin_unlock_irqrestore(&_lock,flags);
++		return 0;
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++
++	stop();
++	return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static ssize_t run_command(struct file *file, const char __user *buf,
++                                size_t count, loff_t *ppos)
++{
++	char buffer[512];
++	char line[20];
++	char* in_pos=NULL;
++	char* end=NULL;
++	char* out_pos=NULL;
++
++	int add=0;
++	int demo=0;
++	int value1=-1;
++	int value2=-1;
++	int value3=-1;
++
++	if(count > 512)
++		return -EINVAL;	//	file is too big
++
++	copy_from_user(buffer, buf, count);
++	buffer[count]=0;
++
++	debug("Command is found (%u bytes length):\n%s\n",count,buffer);
++
++	in_pos=buffer;
++	end=in_pos+count-1;
++
++	while(in_pos < end)
++	{
++		add=0;
++		demo=0;
++		value1=-1;
++		value2=-1;
++		value3=-1;
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++		if(in_pos >= end) break;
++
++		if(*in_pos == '+')
++		{
++			add=1;
++		}
++		else if(*in_pos == '-')
++		{
++			add=0;
++		}
++		else if(*in_pos == 'd')
++		{
++			add=1;
++			demo=1;
++		}
++		else if(*in_pos == '?')
++		{
++			//	just print all handlers
++			if(_thandler.timer != -1)
++			{
++				printk(KERN_INFO "Timer %d (IRQ %d): %u us\n", _thandler.timer, _thandler.irq, _thandler.timeout);
++
++				if(_thandler.gpio_mask)
++				{
++					int i=0;
++					for(; i < TOTAL_GPIO; ++i)
++					{
++						if(all_handlers[i].gpio == i)
++						{
++							printk("GPIO %d: PWM is on (%u us interval, %u us hi-level part)\n",
++									all_handlers[i].gpio,
++									all_handlers[i].interval,
++									all_handlers[i].hl_part);
++						}
++					}
++				}
++			}
++
++			return count;
++		}
++		else
++		{
++			printk(KERN_INFO "Wrong command '%c'.\n", *in_pos);
++			break;
++		}
++		++in_pos;
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%d", &value1);
++		}
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%u", &value2);
++		}
++
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%u", &value3);
++		}
++
++		if(add)
++		{
++			if(value1 == -1)
++			{
++				// nothing to do
++				printk(KERN_INFO "Need more arguments.\n");
++				break;
++			}
++			else if(value2 == -1)
++			{
++				// start timer
++				stop();
++
++				debug("Trying to start timer %d , timeout %u.\n",timer,value1);
++				start(value1);
++			}
++			else
++			{
++				//	add PWM
++				if(value3 == -1)
++				{
++					printk(KERN_INFO "Need more arguments to add PWM.\n");
++					break;
++				}
++
++				if(_thandler.irq == -1)
++				{
++					printk(KERN_INFO "Start timer before adding PWM.\n");
++					break;
++				}
++
++				if(demo)
++				{
++					debug("Running demonstration on GPIO %d (interval %u us, one 1%% step repeats %u time(s)).\n",value1,value2,value3);
++					add_gpio(value1, value2, 0);
++					all_handlers[value1].demo_mode=1;
++					all_handlers[value1].one_step=value3;
++
++					all_handlers[value1].steps=0;
++					all_handlers[value1].increment=value2/100;	//	1%
++				}
++				else
++				{
++					debug("Trying to add PWM on GPIO %d (interval %u us, hi-level part %u us).\n",value1,value2,value3);
++					add_gpio(value1, value2, value3);
++				}
++			}
++		}
++		else
++		{
++			if(value1 == -1)
++			{
++				// just stop timer
++				stop();
++			}
++			else if(value1 != -1)
++			{
++				// remove PWM
++				debug("Trying to remove PWM on GPIO %d.\n",value1);
++				remove_gpio(value1);
++			}
++		}
++
++		while((in_pos < end) && (is_space(*in_pos) || is_eol(*in_pos))) ++in_pos;	// next line
++	}
++
++	return count;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static const struct file_operations irq_fops =
++{
++	.write = run_command,
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++struct clk	//	defined in clock.c
++{
++	unsigned long rate;
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int __init mymodule_init(void)
++{
++	int i=0;
++
++	struct clk* ahb_clk=clk_get(NULL,"ahb");
++	if(ahb_clk)
++	{
++		_timer_frequency=ahb_clk->rate;
++	}
++
++ 	ath79_timer_base=ioremap_nocache(AR71XX_RESET_BASE, AR71XX_RESET_SIZE);
++
++ 	gpio_addr=ioremap_nocache(AR71XX_GPIO_BASE, AR71XX_GPIO_SIZE);
++
++    gpio_readdata_addr     = gpio_addr + GPIO_OFFS_READ;
++    gpio_setdataout_addr   = gpio_addr + GPIO_OFFS_SET;
++    gpio_cleardataout_addr = gpio_addr + GPIO_OFFS_CLEAR;
++
++	_thandler.timer=-1;
++	_thandler.irq=-1;
++	_thandler.timeout=0;
++	_thandler.gpio_mask=0;
++
++	_thandler.current_tick=0;
++	_thandler.ticks_in_timeout=1;
++
++	_thandler.current_time=0;
++	_thandler.current_interval=0;
++
++	for(; i < TOTAL_GPIO; ++i)
++	{
++		all_handlers[i].gpio=-1;
++		all_handlers[i].demo_mode=0;
++	}
++
++	in_file=debugfs_create_file(FILE_NAME, 0200, NULL, NULL, &irq_fops);
++
++	debug("System timer #%d frequency is %d Hz.\n",timer,_timer_frequency);
++	printk(KERN_INFO DRV_NAME " is waiting for commands in file /sys/kernel/debug/" FILE_NAME ".\n");
++
++    return 0;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void __exit mymodule_exit(void)
++{
++	stop();
++
++	debugfs_remove(in_file);
++
++	return;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++module_init(mymodule_init);
++module_exit(mymodule_exit);
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Dmitriy Zherebkov (Black Swift team)");
++
++////////////////////////////////////////////////////////////////////////////////////////////
+Index: package/kernel/gpio-timer-pwm/src/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/gpio-timer-pwm/src/Makefile
+@@ -0,0 +1 @@
++obj-m += gpio-timer-pwm.o
+Index: package/kernel/timer-irq-handler/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/timer-irq-handler/Makefile
+@@ -0,0 +1,45 @@
++#
++# Copyright (C) 2008-2012 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++include $(INCLUDE_DIR)/kernel.mk
++
++PKG_NAME:=timer-irq-handler
++PKG_RELEASE:=1
++
++include $(INCLUDE_DIR)/package.mk
++
++define KernelPackage/timer-irq-handler
++  SUBMENU:=Other modules
++  DEPENDS:=@!LINUX_3_3
++  TITLE:=Timer IRQ handler
++  FILES:=$(PKG_BUILD_DIR)/timer-irq-handler.ko
++  AUTOLOAD:=$(call AutoLoad,30,timer-irq-handler,1)
++  KCONFIG:=
++endef
++
++define KernelPackage/timer-irq-handler/description
++ This is a kernel to userspace timer IRQ translator for AR9331 devices.
++endef
++
++MAKE_OPTS:= \
++	ARCH="$(LINUX_KARCH)" \
++	CROSS_COMPILE="$(TARGET_CROSS)" \
++	SUBDIRS="$(PKG_BUILD_DIR)"
++
++define Build/Prepare
++	mkdir -p $(PKG_BUILD_DIR)
++	$(CP) ./src/* $(PKG_BUILD_DIR)/
++endef
++
++define Build/Compile
++	$(MAKE) -C "$(LINUX_DIR)" \
++		$(MAKE_OPTS) \
++		modules
++endef
++
++$(eval $(call KernelPackage,timer-irq-handler))
+Index: package/kernel/timer-irq-handler/src/Makefile
+===================================================================
+--- /dev/null
++++ package/kernel/timer-irq-handler/src/Makefile
+@@ -0,0 +1 @@
++obj-m += timer-irq-handler.o
+Index: package/kernel/timer-irq-handler/src/timer-irq-handler.c
+===================================================================
+--- /dev/null
++++ package/kernel/timer-irq-handler/src/timer-irq-handler.c
+@@ -0,0 +1,682 @@
++/*
++ *  Timer IRQ handler for AR9331
++ *
++ *    Copyright (C) 2013-2015 Gerhard Bertelsmann <info@gerhard-bertelsmann.de>
++ *    Copyright (C) 2015 Dmitriy Zherebkov <dzh@black-swift.com>
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++ */
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/timer.h>
++#include <linux/interrupt.h>
++#include <linux/clk.h>
++
++#include <asm/mach-ath79/ar71xx_regs.h>
++#include <asm/mach-ath79/ath79.h>
++#include <asm/mach-ath79/irq.h>
++
++#include <asm/siginfo.h>
++#include <linux/rcupdate.h>
++#include <linux/sched.h>
++#include <linux/debugfs.h>
++#include <linux/uaccess.h>
++
++//#define DEBUG_OUT
++
++#ifdef	DEBUG_OUT
++#define debug(fmt,args...)	printk (KERN_INFO fmt ,##args)
++#else
++#define debug(fmt,args...)
++#endif	/* DEBUG_OUT */
++
++//#define SIG_TIMER_IRQ	(SIGRTMIN+11)	// SIGRTMIN is different in Kernel and User modes
++#define SIG_TIMER_IRQ	43				// So we have to hardcode this value
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static unsigned int _timer_frequency=200000000;
++static spinlock_t	_lock;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define ATH79_TIMER0_IRQ		ATH79_MISC_IRQ(0)
++#define AR71XX_TIMER0_RELOAD	0x04
++
++#define ATH79_TIMER1_IRQ		ATH79_MISC_IRQ(8)
++#define AR71XX_TIMER1_RELOAD	0x98
++
++#define ATH79_TIMER2_IRQ		ATH79_MISC_IRQ(9)
++#define AR71XX_TIMER2_RELOAD	0xA0
++
++#define ATH79_TIMER3_IRQ		ATH79_MISC_IRQ(10)
++#define AR71XX_TIMER3_RELOAD	0xA8
++
++struct _timer_desc_struct
++{
++	unsigned int	irq;
++	unsigned int	reload_reg;
++} _timers[4]=
++{
++		{	ATH79_TIMER0_IRQ, AR71XX_TIMER0_RELOAD	},
++		{	ATH79_TIMER1_IRQ, AR71XX_TIMER1_RELOAD	},
++		{	ATH79_TIMER2_IRQ, AR71XX_TIMER2_RELOAD	},
++		{	ATH79_TIMER3_IRQ, AR71XX_TIMER3_RELOAD	}
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++void __iomem *ath79_timer_base;
++
++#define DRV_NAME	"Timer IRQ handler"
++#define FILE_NAME	"timer-irq"
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++#define MAX_PROCESSES	10
++
++typedef struct
++{
++	pid_t			pid;
++	unsigned int	timeout;			//	allways microseconds
++	int				only_once;			//	0 means "infinite" timer
++
++	unsigned int	next_time;			//	next time we'll send signal
++	unsigned int	next_interval;		//	next_time overflow counter
++} _process_handler;
++
++typedef struct
++{
++	int				timer;
++	int				irq;
++	unsigned int	timeout;			//	allways microseconds
++
++	unsigned int	current_tick;		//	ticks counter
++	unsigned int	ticks_in_timeout;	//	total ticks we should get
++
++	unsigned int	current_time;		//	microseconds since interval started
++	unsigned int	current_interval;	//	current_time overflow counter
++
++	_process_handler	processes[MAX_PROCESSES];
++} _timer_handler;
++
++#define TOTAL_TIMERS	4
++static _timer_handler	all_handlers[TOTAL_TIMERS];
++
++static struct dentry* in_file;
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_space(char symbol)
++{
++	return (symbol == ' ') || (symbol == '\t');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_digit(char symbol)
++{
++	return (symbol >= '0') && (symbol <= '9');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int is_eol(char symbol)
++{
++	return (symbol == '\n') || (symbol == '\r');
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int send_timer_signal(pid_t pid,int timer,unsigned int timeout)
++{
++	struct siginfo info;
++	struct task_struct* ts=NULL;
++
++	/* send the signal */
++	memset(&info, 0, sizeof(struct siginfo));
++	info.si_signo = SIG_TIMER_IRQ;
++	info.si_code = SI_QUEUE;	// this is bit of a trickery: SI_QUEUE is normally used by sigqueue from user space,
++					// and kernel space should use SI_KERNEL. But if SI_KERNEL is used the real_time data
++					// is not delivered to the user space signal handler function.
++
++	info.si_int=(timer << 24) | timeout;
++
++	rcu_read_lock();
++	ts=pid_task(find_vpid(pid), PIDTYPE_PID);
++	rcu_read_unlock();
++
++	if(ts)
++	{
++		send_sig_info(SIG_TIMER_IRQ, &info, ts);    //send the signal
++		return 0;
++	}
++
++	return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void send_signals(_timer_handler* handler)
++{
++	int i=0;
++
++	if(++(handler->current_tick) < handler->ticks_in_timeout)
++	{
++		return;
++	}
++
++	handler->current_tick=0;
++
++	handler->current_time+=handler->timeout;
++	if(handler->current_time < handler->timeout)
++	{
++		//	overflow!
++		++(handler->current_interval);
++	}
++
++	for(i=0; i < MAX_PROCESSES; ++i)
++	{
++		if(handler->processes[i].pid)
++		{
++			if(	(handler->current_time >= handler->processes[i].next_time) ||
++				(handler->current_interval > handler->processes[i].next_interval))
++			{
++				if(	(send_timer_signal(handler->processes[i].pid,handler->timer,handler->processes[i].timeout) == 0) &&
++					(!handler->processes[i].only_once))
++				{
++					handler->processes[i].next_time+=handler->processes[i].timeout;
++
++					if(handler->processes[i].next_time < handler->processes[i].timeout)
++					{
++						//	overflow!
++						++(handler->processes[i].next_interval);
++					}
++				}
++				else
++				{
++					int cur_process=i;
++
++					for(++i; i < MAX_PROCESSES; ++i)
++					{
++						handler->processes[i-1]=handler->processes[i];
++					}
++					handler->processes[i-1].pid=0;
++
++					i=cur_process-1;
++				}
++			}
++		}
++		else
++		{
++			break;
++		}
++	}
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static irqreturn_t timer_interrupt(int irq, void* dev_id)
++{
++	_timer_handler* handler=(_timer_handler*)dev_id;
++
++	if(handler && (handler->irq == irq))
++	{
++//		debug("Got handler for timer %d!\n",handler->timer);
++		send_signals(handler);
++	}
++	else
++	{
++//		debug("IRQ %d event - no handlers found!\n",irq);
++	}
++
++	return(IRQ_HANDLED);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_irq(int timer,void* data)
++{
++	int err=0;
++	int irq_number=_timers[timer].irq;
++
++	debug("Adding IRQ %d handler\n",irq_number);
++
++	err=request_irq(irq_number, timer_interrupt, 0, DRV_NAME, data);
++
++	if(!err)
++	{
++		debug("Got IRQ %d.\n", irq_number);
++		return irq_number;
++	}
++	else
++	{
++		debug("Timer IRQ handler: trouble requesting IRQ %d error %d\n",irq_number, err);
++	}
++
++    return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void clear_handler(_timer_handler* handler)
++{
++	int i=0;
++
++	handler->timer=-1;
++	handler->irq=-1;
++	handler->timeout=0;
++
++	handler->current_tick=0;
++	handler->ticks_in_timeout=1;
++
++	handler->current_time=0;
++	handler->current_interval=0;
++
++	for(i=0; i < MAX_PROCESSES; ++i)
++	{
++		handler->processes[i].pid=0;
++	}
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void stop(int timer)
++{
++	unsigned long flags=0;
++
++	_timer_handler* handler=&all_handlers[timer];
++
++	spin_lock_irqsave(&_lock,flags);
++
++	if(handler->irq >= 0)
++	{
++		free_irq(handler->irq, (void*)handler);
++		clear_handler(handler);
++
++		debug("Timer stopped.\n");
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int start(int timer,unsigned int timeout)
++{
++	int irq=-1;
++	unsigned long flags=0;
++
++	_timer_handler* handler=&all_handlers[timer];
++
++	stop(timer);
++
++	spin_lock_irqsave(&_lock,flags);
++	// need some time (10 ms) before first IRQ - even after "lock"?!
++	__raw_writel(_timer_frequency/100, ath79_timer_base+_timers[timer].reload_reg);
++
++	irq=add_irq(timer,handler);
++
++	if(irq >= 0)
++	{
++		unsigned int real_timeout=_timer_frequency/1000000*timeout;
++
++/*		int	scale=0;
++
++		scale=timeout/100;
++		if(scale >= 2)
++		{
++			real_timeout/=100;
++			handler->ticks_in_timeout=scale;
++		}
++*/
++		handler->timer=timer;
++		handler->irq=irq;
++		handler->timeout=timeout;
++
++		__raw_writel(real_timeout, ath79_timer_base+_timers[timer].reload_reg);
++
++		debug("Timer #%d started with %u us interval.\n", timer, timeout);
++
++		spin_unlock_irqrestore(&_lock,flags);
++		return 0;
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++
++	stop(timer);
++	return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void remove_process(int timer,pid_t pid)
++{
++	unsigned long flags=0;
++
++	spin_lock_irqsave(&_lock,flags);
++
++	if((timer >= 0) && (timer < TOTAL_TIMERS))
++	{
++		_timer_handler* handler=&all_handlers[timer];
++
++		if(handler->timer == timer)
++		{
++			int i=0;
++
++			for(; i < MAX_PROCESSES; ++i)
++			{
++				if(handler->processes[i].pid == pid)
++				{
++					for(++i; i < MAX_PROCESSES; ++i)
++					{
++						handler->processes[i-1]=handler->processes[i];
++					}
++					handler->processes[i-1].pid=0;
++
++					spin_unlock_irqrestore(&_lock,flags);
++					return;
++				}
++			}
++
++			debug("Handler for timer %d to PID %u is not found.\n", timer, pid);
++		}
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int add_process(int timer, pid_t pid, unsigned int timeout,int only_once)
++{
++	unsigned long flags=0;
++
++	spin_lock_irqsave(&_lock,flags);
++
++	if((timer >= 0) && (timer < TOTAL_TIMERS))
++	{
++		_timer_handler* handler=&all_handlers[timer];
++		int p=0;
++
++		if(handler->timer == timer)	//	timer is working
++		{
++			while((handler->processes[p].pid > 0) && (handler->processes[p].pid != pid)) ++p;
++
++			if(p < MAX_PROCESSES)
++			{
++				handler->processes[p].pid=pid;
++				handler->processes[p].timeout=timeout;
++				handler->processes[p].only_once=only_once;
++
++				handler->processes[p].next_time=handler->current_time;
++				handler->processes[p].next_interval=handler->current_interval;
++
++				handler->processes[p].next_time+=timeout;
++				if(handler->processes[p].next_time < timeout)
++				{
++					//	overflow!
++					++(handler->processes[p].next_interval);
++				}
++
++				spin_unlock_irqrestore(&_lock,flags);
++				return 0;
++			}
++			else
++			{
++				debug("Can't add handler: %d processes already handle timer %d.\n", p, timer);
++			}
++		}
++	}
++
++	spin_unlock_irqrestore(&_lock,flags);
++	return -1;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static ssize_t run_command(struct file *file, const char __user *buf,
++                                size_t count, loff_t *ppos)
++{
++	char buffer[512];
++	char line[20];
++	char* in_pos=NULL;
++	char* end=NULL;
++	char* out_pos=NULL;
++
++	int add=0;
++	int timer=-1;
++	unsigned int pid=0;
++	unsigned int timeout=0;
++	int only_once=0;
++
++	if(count > 512)
++		return -EINVAL;	//	file is too big
++
++	copy_from_user(buffer, buf, count);
++	buffer[count]=0;
++
++	debug("Command is found (%u bytes length):\n%s\n",count,buffer);
++
++	in_pos=buffer;
++	end=in_pos+count-1;
++
++	while(in_pos < end)
++	{
++		add=0;
++		timer=-1;
++		pid=0;
++		timeout=0;
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++		if(in_pos >= end) break;
++
++		if(*in_pos == '+')
++		{
++			add=1;
++		}
++		else if(*in_pos == '-')
++		{
++			add=0;
++		}
++		else if(*in_pos == '?')
++		{
++			//	just print all handlers
++			int i,j;
++
++			for(i=0; i < TOTAL_TIMERS; ++i)
++			{
++				if(all_handlers[i].timer != -1)
++				{
++					printk(KERN_INFO "Timer %d (IRQ %d): ",all_handlers[i].timer,all_handlers[i].irq);
++
++					for(j=0; j < MAX_PROCESSES; ++j)
++					{
++						if(all_handlers[i].processes[j].pid != 0)
++						{
++							printk("%u (%u us)",all_handlers[i].processes[j].pid, all_handlers[i].processes[j].timeout);
++						}
++						else
++						{
++							break;
++						}
++						if(j < (MAX_PROCESSES-1))
++						{
++							printk(", ");
++						}
++					}
++
++					printk("\n");
++				}
++			}
++
++			return count;
++		}
++		else
++		{
++			printk(KERN_INFO "Wrong command '%c'.\n", *in_pos);
++			break;
++		}
++		++in_pos;
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%d", &timer);
++		}
++		else
++		{
++			printk(KERN_INFO "Can't read timer number.\n");
++			break;
++		}
++
++		if(add)
++		{
++			while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++			out_pos=line;
++			while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++			*out_pos=0;
++
++			if(is_digit(line[0]))
++			{
++				sscanf(line, "%u", &timeout);
++			}
++			else
++			{
++				printk(KERN_INFO "Can't read timeout.\n");
++				break;
++			}
++		}
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(is_digit(line[0]))
++		{
++			sscanf(line, "%u", &pid);
++		}
++
++		while((in_pos < end) && is_space(*in_pos)) ++in_pos;	//	skip whitespace
++
++		out_pos=line;
++		while((in_pos < end) && is_digit(*in_pos)) *out_pos++=*in_pos++;
++		*out_pos=0;
++
++		if(line[0] == '1')
++		{
++			only_once=1;
++		}
++
++		if(add)
++		{
++			if(pid)
++			{
++				debug("Trying to add handler for timer %d to PID %u, timeout %u.\n",timer,pid,timeout);
++				add_process(timer,pid,timeout,only_once);
++			}
++			else
++			{
++				debug("Trying to start timer %d , timeout %u.\n",timer,timeout);
++				start(timer,timeout);
++			}
++		}
++		else
++		{
++			if(pid)
++			{
++				debug("Trying to remove handler for timer %d to PID %u.\n",timer,pid);
++				remove_process(timer,pid);
++			}
++			else
++			{
++				debug("Trying to stop timer %d.\n",timer);
++				stop(timer);
++			}
++		}
++
++		while((in_pos < end) && (is_space(*in_pos) || is_eol(*in_pos))) ++in_pos;	// next line
++	}
++
++	return count;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static const struct file_operations irq_fops=
++{
++//	.read = show_handlers,
++	.write = run_command,
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++struct clk	//	defined in clock.c
++{
++	unsigned long rate;
++};
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static int __init mymodule_init(void)
++{
++    int i=0;
++
++	struct clk* ahb_clk=clk_get(NULL,"ahb");
++	if(ahb_clk)
++	{
++		_timer_frequency=ahb_clk->rate;
++	}
++
++	ath79_timer_base = ioremap_nocache(AR71XX_RESET_BASE, AR71XX_RESET_SIZE);
++
++	for(i=0; i < TOTAL_TIMERS; ++i)
++	{
++		clear_handler(&all_handlers[i]);
++	}
++
++	in_file=debugfs_create_file(FILE_NAME, 0666, NULL, NULL, &irq_fops);
++
++	debug("Waiting for commands in file /sys/kernel/debug/" FILE_NAME ".\n");
++
++    return 0;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++static void __exit mymodule_exit(void)
++{
++	int i=0;
++
++	for(; i < TOTAL_TIMERS; ++i)
++	{
++		clear_handler(&all_handlers[i]);
++	}
++
++	debugfs_remove(in_file);
++
++	return;
++}
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++module_init(mymodule_init);
++module_exit(mymodule_exit);
++
++////////////////////////////////////////////////////////////////////////////////////////////
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Dmitriy Zherebkov (Black Swift team)");
++
++////////////////////////////////////////////////////////////////////////////////////////////

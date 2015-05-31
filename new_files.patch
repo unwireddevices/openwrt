@@ -1,0 +1,69 @@
+Index: files/etc/avahi/avahi-daemon.conf
+===================================================================
+--- /dev/null
++++ files/etc/avahi/avahi-daemon.conf
+@@ -0,0 +1,29 @@
++[server]
++#host-name=foo
++#domain-name=local
++use-ipv4=yes
++use-ipv6=no
++check-response-ttl=no
++use-iff-running=no
++#enable-dbus=no
++
++[publish]
++publish-addresses=yes
++publish-hinfo=yes
++publish-workstation=no
++publish-domain=yes
++#publish-dns-servers=192.168.1.1
++#publish-resolv-conf-dns-servers=yes
++
++[reflector]
++enable-reflector=no
++reflect-ipv=no
++
++[rlimits]
++#rlimit-as=
++rlimit-core=0
++rlimit-data=4194304
++rlimit-fsize=0
++rlimit-nofile=30
++rlimit-stack=4194304
++rlimit-nproc=3
+Index: files/etc/avahi/services/http.service
+===================================================================
+--- /dev/null
++++ files/etc/avahi/services/http.service
+@@ -0,0 +1,10 @@
++<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
++<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
++<service-group>
++ <name replace-wildcards="yes">Black Swift on %h</name>
++  <service>
++   <type>_http._tcp</type>
++   <port>80</port>
++   <txt-record>path=/</txt-record>
++  </service>
++</service-group>
+Index: files/etc/avahi/services/ssh.service
+===================================================================
+--- /dev/null
++++ files/etc/avahi/services/ssh.service
+@@ -0,0 +1,9 @@
++<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
++<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
++<service-group>
++ <name replace-wildcards="yes">Secure Shell on %h</name>
++  <service>
++   <type>_ssh._tcp</type>
++   <port>22</port>
++  </service>
++</service-group>
+Index: files/etc/fw_env.config
+===================================================================
+--- /dev/null
++++ files/etc/fw_env.config
+@@ -0,0 +1 @@
++/dev/mtd1	0x0000	0x8000	0x10000

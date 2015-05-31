@@ -1,0 +1,762 @@
+Index: package/base-files/files/etc/config/network
+===================================================================
+--- package/base-files/files/etc/config/network
++++ package/base-files/files/etc/config/network
+@@ -6,6 +6,11 @@
+ 	option ipaddr	127.0.0.1
+ 	option netmask	255.0.0.0
+ 
++config interface wlan
++	option proto	static
++	option ipaddr	192.168.0.254
++	option netmask	255.255.255.0
++	
+ config interface lan
+ 	option ifname	eth0
+ 	option type 	bridge
+Index: package/base-files/files/etc/config/system
+===================================================================
+--- package/base-files/files/etc/config/system
++++ package/base-files/files/etc/config/system
+@@ -1,5 +1,5 @@
+ config system
+-	option hostname	OpenWrt
++	option hostname	BlackSwift
+ 	option timezone	UTC
+ 
+ config timeserver ntp
+@@ -9,3 +9,9 @@
+ 	list server	3.openwrt.pool.ntp.org
+ 	option enabled 1
+ 	option enable_server 0
++
++config led 'led_sys'                                                            
++        option name 'SYS'                                                       
++        option sysfs 'bsb:red:sys'                                              
++        option default '1'                                                      
++        option trigger 'none'
+Index: package/base-files/files/etc/config/shadow
+===================================================================
+--- package/base-files/files/etc/shadow	2015-04-23
++++ package/base-files/files/etc/shadow	2015-03-19
+@@ -1,4 +1,4 @@
+-root::0:0:99999:7:::
++root:$1$fCm75CPC$EZIil4dZdRZr3i0u4igQr/:16512:0:99999:7:::
+ daemon:*:0:0:99999:7:::
+ ftp:*:0:0:99999:7:::
+ network:*:0:0:99999:7:::
+Index: package/base-files/files/lib/functions/uci-defaults.sh
+===================================================================
+--- package/base-files/files/lib/functions/uci-defaults.sh
++++ package/base-files/files/lib/functions/uci-defaults.sh
+@@ -177,7 +177,25 @@
+ set network.lan.proto='static'
+ set network.lan.ipaddr='192.168.1.1'
+ set network.lan.netmask='255.255.255.0'
+-set network.lan.ip6assign='60'
++#set network.lan.ip6assign='60'
++EOF
++}
++
++ucidef_set_interface_wlan() {
++	uci batch <<EOF
++set network.wlan='interface'
++set network.wlan.proto='static'
++set network.wlan.ipaddr='192.168.0.254'
++set network.wlan.netmask='255.255.255.0'
++EOF
++	uci batch <<EOF
++set dhcp.wlan='dhcp'
++set dhcp.wlan.interface='wlan'
++set dhcp.wlan.start='100'
++set dhcp.wlan.limit='150'
++set dhcp.wlan.leasetime='12h'
++set dhcp.wlan.dhcpv6='server'
++set dhcp.wlan.ra='server'
+ EOF
+ }
+ 
+Index: package/kernel/mac80211/files/lib/wifi/mac80211.sh
+===================================================================
+--- package/kernel/mac80211/files/lib/wifi/mac80211.sh
++++ package/kernel/mac80211/files/lib/wifi/mac80211.sh
+@@ -102,14 +102,14 @@
+ 	option hwmode	11${mode_band}
+ $dev_id
+ $ht_capab
+-	# REMOVE THIS LINE TO ENABLE WIFI:
+-	option disabled 1
++	# EDIT THIS LINE TO DISABLE OR ENABLE WIFI:
++	option disabled 0
+ 
+ config wifi-iface
+ 	option device   radio$devidx
+-	option network  lan
++	option network  wlan
+ 	option mode     ap
+-	option ssid     OpenWrt
++	option ssid     BlackSwift
+ 	option encryption none
+ 
+ EOF
+Index: target/linux/ar71xx/base-files/etc/diag.sh
+===================================================================
+--- target/linux/ar71xx/base-files/etc/diag.sh
++++ target/linux/ar71xx/base-files/etc/diag.sh
+@@ -75,6 +75,9 @@
+ 	el-m150)
+ 		status_led="EasyLink:green:system"
+ 		;;
++	bsb)
++		status_led="bsb:red:sys"
++		;;
+ 	gl-inet)
+ 		status_led="gl-connect:green:lan"
+ 		;;
+Index: target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
+===================================================================
+--- target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
++++ target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
+@@ -61,6 +61,10 @@
+ 	ucidef_set_led_wlan "wlan" "WLAN" "carambola2:green:wlan" "phy0tpt"
+ 	;;
+ 
++bsb)
++	ucidef_set_led_default "sys" "SYS" "bsb:red:sys" "1"
++	;;
++
+ db120)
+ 	ucidef_set_led_usbdev "usb" "USB" "db120:green:usb" "1-1"
+ 	;;
+Index: target/linux/ar71xx/base-files/etc/uci-defaults/02_network
+===================================================================
+--- target/linux/ar71xx/base-files/etc/uci-defaults/02_network
++++ target/linux/ar71xx/base-files/etc/uci-defaults/02_network
+@@ -172,6 +172,13 @@
+ 	ucidef_set_interface_lan "eth0"
+ 	;;
+ 
++bsb)
++	ucidef_set_interfaces_lan_wan "eth1" "eth0"
++	ucidef_add_switch "switch0" "1" "1"
++	ucidef_add_switch_vlan "switch0" "1" "0 1 3"
++	ucidef_set_interface_wlan
++	;;
++
+ tl-wdr4300|\
+ tl-wr1041n-v2)
+ 	ucidef_set_interfaces_lan_wan "eth0.1" "eth0.2"
+Index: target/linux/ar71xx/base-files/lib/ar71xx.sh
+===================================================================
+--- target/linux/ar71xx/base-files/lib/ar71xx.sh
++++ target/linux/ar71xx/base-files/lib/ar71xx.sh
+@@ -736,6 +736,9 @@
+ 	"8devices Carambola2"*)
+ 		name="carambola2"
+ 		;;
++	"Smart Electronics Black Swift board"*)
++		name="bsb"
++		;;
+ 	*"Sitecom WLR-8100")
+ 		name="wlr8100"
+ 		;;
+Index: target/linux/ar71xx/base-files/lib/upgrade/platform.sh
+===================================================================
+--- target/linux/ar71xx/base-files/lib/upgrade/platform.sh
++++ target/linux/ar71xx/base-files/lib/upgrade/platform.sh
+@@ -214,6 +214,7 @@
+ 		return 0
+ 		;;
+ 
++	bsb | \
+ 	dir-825-b1 | \
+ 	tew-673gru)
+ 		dir825b_check_image "$1" && return 0
+Index: target/linux/ar71xx/files/arch/mips/ath79/mach-bsb.c
+===================================================================
+--- /dev/null
++++ target/linux/ar71xx/files/arch/mips/ath79/mach-bsb.c
+@@ -0,0 +1,83 @@
++/*
++ *  Smart Electronics Black Swift board support
++ *
++ *  Copyright (C) 2014 Dmitriy Zherebkov dzh@black-swift.com
++ *
++ *  This program is free software; you can redistribute it and/or modify it
++ *  under the terms of the GNU General Public License version 2 as published
++ *  by the Free Software Foundation.
++ */
++
++#include <asm/mach-ath79/ath79.h>
++#include <asm/mach-ath79/ar71xx_regs.h>
++#include "common.h"
++#include "dev-eth.h"
++#include "dev-gpio-buttons.h"
++#include "dev-leds-gpio.h"
++#include "dev-m25p80.h"
++#include "dev-spi.h"
++#include "dev-usb.h"
++#include "dev-wmac.h"
++#include "machtypes.h"
++
++#define BSB_GPIO_LED_SYS		27
++
++#define BSB_GPIO_BTN_RESET		11
++
++#define BSB_KEYS_POLL_INTERVAL		20	/* msecs */
++#define BSB_KEYS_DEBOUNCE_INTERVAL	(3 * BSB_KEYS_POLL_INTERVAL)
++
++#define BSB_MAC_OFFSET			0x0000
++#define BSB_CALDATA_OFFSET		0x1000
++
++static struct gpio_led bsb_leds_gpio[] __initdata = {
++	{
++		.name		= "bsb:red:sys",
++		.gpio		= BSB_GPIO_LED_SYS,
++		.active_low	= 1,
++	}
++};
++
++static struct gpio_keys_button bsb_gpio_keys[] __initdata = {
++	{
++		.desc		= "reset button",
++		.type		= EV_KEY,
++		.code		= KEY_RESTART,
++		.debounce_interval = BSB_KEYS_DEBOUNCE_INTERVAL,
++		.gpio		= BSB_GPIO_BTN_RESET,
++		.active_low	= 1,
++	},
++};
++
++static void __init bsb_setup(void)
++{
++	u8 *art = (u8 *) KSEG1ADDR(0x1fff0000);
++
++	/* disable PHY_SWAP and PHY_ADDR_SWAP bits */
++	ath79_setup_ar933x_phy4_switch(false,false);
++
++	ath79_register_leds_gpio(-1, ARRAY_SIZE(bsb_leds_gpio),
++				 bsb_leds_gpio);
++	ath79_register_gpio_keys_polled(-1, BSB_KEYS_POLL_INTERVAL,
++					ARRAY_SIZE(bsb_gpio_keys),
++					bsb_gpio_keys);
++
++	ath79_register_usb();
++
++	ath79_register_m25p80(NULL);
++
++	ath79_init_mac(ath79_eth0_data.mac_addr, art + BSB_MAC_OFFSET, 1);
++	ath79_init_mac(ath79_eth1_data.mac_addr, art + BSB_MAC_OFFSET, 2);
++
++	ath79_register_mdio(0, 0x0);
++
++	ath79_register_eth(0);
++	ath79_register_eth(1);
++
++	ath79_register_wmac(art + BSB_CALDATA_OFFSET,
++			    art + BSB_MAC_OFFSET);
++}
++
++MIPS_MACHINE(ATH79_MACH_BSB, "BSB", "Smart Electronics Black Swift board",
++		bsb_setup);
++
+Index: target/linux/ar71xx/generic/profiles/smartelectronics.mk
+===================================================================
+--- /dev/null
++++ target/linux/ar71xx/generic/profiles/smartelectronics.mk
+@@ -0,0 +1,17 @@
++#
++# Copyright (C) 2013 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++define Profile/BSB
++        NAME:=Smart Electronics Black Swift board
++        PACKAGES:=kmod-usb-core kmod-usb2 kmod-usb-audio kmod-sound-core
++endef
++
++define Profile/BSB/Description
++        Package set optimized for the Smart Electronics Black Swift board.
++endef
++
++$(eval $(call Profile,BSB))
+Index: target/linux/ar71xx/config-3.10
+===================================================================
+--- target/linux/ar71xx/config-3.10
++++ target/linux/ar71xx/config-3.10
+@@ -13,123 +13,123 @@
+ CONFIG_ARCH_SUSPEND_POSSIBLE=y
+ CONFIG_ARCH_WANT_IPC_PARSE_VERSION=y
+ CONFIG_ATH79=y
+-CONFIG_ATH79_DEV_AP9X_PCI=y
+-CONFIG_ATH79_DEV_DSA=y
++# CONFIG_ATH79_DEV_AP9X_PCI is not set
++# CONFIG_ATH79_DEV_DSA is not set
+ CONFIG_ATH79_DEV_ETH=y
+ CONFIG_ATH79_DEV_GPIO_BUTTONS=y
+ CONFIG_ATH79_DEV_LEDS_GPIO=y
+ CONFIG_ATH79_DEV_M25P80=y
+-CONFIG_ATH79_DEV_NFC=y
+ CONFIG_ATH79_DEV_SPI=y
+ CONFIG_ATH79_DEV_USB=y
+ CONFIG_ATH79_DEV_WMAC=y
+-CONFIG_ATH79_MACH_ALFA_AP96=y
+-CONFIG_ATH79_MACH_ALFA_NX=y
+-CONFIG_ATH79_MACH_ALL0258N=y
+-CONFIG_ATH79_MACH_ALL0315N=y
+-CONFIG_ATH79_MACH_AP113=y
+-CONFIG_ATH79_MACH_AP121=y
+-CONFIG_ATH79_MACH_AP132=y
+-CONFIG_ATH79_MACH_AP136=y
+-CONFIG_ATH79_MACH_AP81=y
+-CONFIG_ATH79_MACH_AP83=y
+-CONFIG_ATH79_MACH_AP96=y
+-CONFIG_ATH79_MACH_ARCHER_C7=y
+-CONFIG_ATH79_MACH_AW_NR580=y
+-CONFIG_ATH79_MACH_BHU_BXU2000N2_A=y
+-CONFIG_ATH79_MACH_CAP4200AG=y
+-CONFIG_ATH79_MACH_CARAMBOLA2=y
+-CONFIG_ATH79_MACH_DB120=y
+-CONFIG_ATH79_MACH_DIR_505_A1=y
+-CONFIG_ATH79_MACH_DIR_600_A1=y
+-CONFIG_ATH79_MACH_DIR_615_C1=y
+-CONFIG_ATH79_MACH_DIR_825_B1=y
+-CONFIG_ATH79_MACH_DIR_825_C1=y
+-CONFIG_ATH79_MACH_DRAGINO2=y
+-CONFIG_ATH79_MACH_EAP300V2=y
+-CONFIG_ATH79_MACH_EAP7660D=y
+-CONFIG_ATH79_MACH_EL_M150=y
+-CONFIG_ATH79_MACH_EL_MINI=y
+-CONFIG_ATH79_MACH_ESR1750=y
+-CONFIG_ATH79_MACH_ESR900=y
+-CONFIG_ATH79_MACH_EW_DORIN=y
+-CONFIG_ATH79_MACH_GL_INET=y
+-CONFIG_ATH79_MACH_GS_OOLITE=y
+-CONFIG_ATH79_MACH_HIWIFI_HC6361=y
+-CONFIG_ATH79_MACH_HORNET_UB=y
+-CONFIG_ATH79_MACH_JA76PF=y
+-CONFIG_ATH79_MACH_JWAP003=y
+-CONFIG_ATH79_MACH_MR600=y
+-CONFIG_ATH79_MACH_MYNET_N600=y
+-CONFIG_ATH79_MACH_MYNET_N750=y
+-CONFIG_ATH79_MACH_MYNET_REXT=y
+-CONFIG_ATH79_MACH_MZK_W04NU=y
+-CONFIG_ATH79_MACH_MZK_W300NH=y
+-CONFIG_ATH79_MACH_NBG460N=y
+-CONFIG_ATH79_MACH_NBG6716=y
+-CONFIG_ATH79_MACH_OM2P=y
+-CONFIG_ATH79_MACH_OM5P=y
+-CONFIG_ATH79_MACH_PB42=y
+-CONFIG_ATH79_MACH_PB44=y
+-CONFIG_ATH79_MACH_PB92=y
++# CONFIG_ATH79_MACH_ALFA_AP96 is not set
++# CONFIG_ATH79_MACH_ALFA_NX is not set
++# CONFIG_ATH79_MACH_ALL0258N is not set
++# CONFIG_ATH79_MACH_ALL0315N is not set
++# CONFIG_ATH79_MACH_AP113 is not set
++# CONFIG_ATH79_MACH_AP121 is not set
++# CONFIG_ATH79_MACH_AP132 is not set
++# CONFIG_ATH79_MACH_AP136 is not set
++# CONFIG_ATH79_MACH_AP81 is not set
++# CONFIG_ATH79_MACH_AP83 is not set
++# CONFIG_ATH79_MACH_AP96 is not set
++# CONFIG_ATH79_MACH_ARCHER_C7 is not set
++# CONFIG_ATH79_MACH_AW_NR580 is not set
++# CONFIG_ATH79_MACH_BHU_BXU2000N2_A is not set
++CONFIG_ATH79_MACH_BSB=y
++# CONFIG_ATH79_MACH_CAP4200AG is not set
++# CONFIG_ATH79_MACH_CARAMBOLA2 is not set
++# CONFIG_ATH79_MACH_DB120 is not set
++# CONFIG_ATH79_MACH_DIR_505_A1 is not set
++# CONFIG_ATH79_MACH_DIR_600_A1 is not set
++# CONFIG_ATH79_MACH_DIR_615_C1 is not set
++# CONFIG_ATH79_MACH_DIR_825_B1 is not set
++# CONFIG_ATH79_MACH_DIR_825_C1 is not set
++# CONFIG_ATH79_MACH_DRAGINO2 is not set
++# CONFIG_ATH79_MACH_EAP300V2 is not set
++# CONFIG_ATH79_MACH_EAP7660D is not set
++# CONFIG_ATH79_MACH_EL_M150 is not set
++# CONFIG_ATH79_MACH_EL_MINI is not set
++# CONFIG_ATH79_MACH_ESR1750 is not set
++# CONFIG_ATH79_MACH_ESR900 is not set
++# CONFIG_ATH79_MACH_EW_DORIN is not set
++# CONFIG_ATH79_MACH_GL_INET is not set
++# CONFIG_ATH79_MACH_GS_OOLITE is not set
++# CONFIG_ATH79_MACH_HIWIFI_HC6361 is not set
++# CONFIG_ATH79_MACH_HORNET_UB is not set
++# CONFIG_ATH79_MACH_JA76PF is not set
++# CONFIG_ATH79_MACH_JWAP003 is not set
++# CONFIG_ATH79_MACH_MR600 is not set
++# CONFIG_ATH79_MACH_MYNET_N600 is not set
++# CONFIG_ATH79_MACH_MYNET_N750 is not set
++# CONFIG_ATH79_MACH_MYNET_REXT is not set
++# CONFIG_ATH79_MACH_MZK_W04NU is not set
++# CONFIG_ATH79_MACH_MZK_W300NH is not set
++# CONFIG_ATH79_MACH_NBG460N is not set
++# CONFIG_ATH79_MACH_NBG6716 is not set
++# CONFIG_ATH79_MACH_OM2P is not set
++# CONFIG_ATH79_MACH_OM5P is not set
++# CONFIG_ATH79_MACH_PB42 is not set
++# CONFIG_ATH79_MACH_PB44 is not set
++# CONFIG_ATH79_MACH_PB92 is not set
+ # CONFIG_ATH79_MACH_RB2011 is not set
+ # CONFIG_ATH79_MACH_RB4XX is not set
+ # CONFIG_ATH79_MACH_RB750 is not set
+ # CONFIG_ATH79_MACH_RB91X is not set
+ # CONFIG_ATH79_MACH_RB95X is not set
+ # CONFIG_ATH79_MACH_RBSXTLITE is not set
+-CONFIG_ATH79_MACH_RW2458N=y
+-CONFIG_ATH79_MACH_SMART_300=y
+-CONFIG_ATH79_MACH_TEW_632BRP=y
+-CONFIG_ATH79_MACH_TEW_673GRU=y
+-CONFIG_ATH79_MACH_TEW_712BR=y
+-CONFIG_ATH79_MACH_TEW_732BR=y
+-CONFIG_ATH79_MACH_TL_MR11U=y
+-CONFIG_ATH79_MACH_TL_MR13U=y
+-CONFIG_ATH79_MACH_TL_MR3020=y
+-CONFIG_ATH79_MACH_TL_MR3X20=y
+-CONFIG_ATH79_MACH_TL_WA701ND_V2=y
+-CONFIG_ATH79_MACH_TL_WA830RE_V2=y
+-CONFIG_ATH79_MACH_TL_WA901ND=y
+-CONFIG_ATH79_MACH_TL_WA901ND_V2=y
+-CONFIG_ATH79_MACH_TL_WAX50RE=y
+-CONFIG_ATH79_MACH_TL_WDR3500=y
+-CONFIG_ATH79_MACH_TL_WDR4300=y
+-CONFIG_ATH79_MACH_TL_WR1041N_V2=y
+-CONFIG_ATH79_MACH_TL_WR1043ND=y
+-CONFIG_ATH79_MACH_TL_WR1043ND_V2=y
+-CONFIG_ATH79_MACH_TL_WR2543N=y
+-CONFIG_ATH79_MACH_TL_WR703N=y
+-CONFIG_ATH79_MACH_TL_WR720N_V3=y
+-CONFIG_ATH79_MACH_TL_WR741ND=y
+-CONFIG_ATH79_MACH_TL_WR741ND_V4=y
+-CONFIG_ATH79_MACH_TL_WR841N_V1=y
+-CONFIG_ATH79_MACH_TL_WR841N_V8=y
+-CONFIG_ATH79_MACH_TL_WR841N_V9=y
+-CONFIG_ATH79_MACH_TL_WR941ND=y
+-CONFIG_ATH79_MACH_TUBE2H=y
+-CONFIG_ATH79_MACH_UBNT=y
+-CONFIG_ATH79_MACH_UBNT_XM=y
+-CONFIG_ATH79_MACH_WHR_HP_G300N=y
+-CONFIG_ATH79_MACH_WLAE_AG300N=y
+-CONFIG_ATH79_MACH_WLR8100=y
+-CONFIG_ATH79_MACH_WNDAP360=y
+-CONFIG_ATH79_MACH_WNDR3700=y
+-CONFIG_ATH79_MACH_WNDR4300=y
+-CONFIG_ATH79_MACH_WNR2000=y
+-CONFIG_ATH79_MACH_WNR2000_V3=y
+-CONFIG_ATH79_MACH_WNR2200=y
+-CONFIG_ATH79_MACH_WP543=y
+-CONFIG_ATH79_MACH_WPE72=y
+-CONFIG_ATH79_MACH_WRT160NL=y
+-CONFIG_ATH79_MACH_WRT400N=y
+-CONFIG_ATH79_MACH_WZR_HP_AG300H=y
+-CONFIG_ATH79_MACH_WZR_HP_G300NH=y
+-CONFIG_ATH79_MACH_WZR_HP_G300NH2=y
+-CONFIG_ATH79_MACH_WZR_HP_G450H=y
+-CONFIG_ATH79_MACH_ZCN_1523H=y
+-CONFIG_ATH79_NVRAM=y
+-CONFIG_ATH79_PCI_ATH9K_FIXUP=y
++# CONFIG_ATH79_MACH_RW2458N is not set
++# CONFIG_ATH79_MACH_SMART_300 is not set
++# CONFIG_ATH79_MACH_TEW_632BRP is not set
++# CONFIG_ATH79_MACH_TEW_673GRU is not set
++# CONFIG_ATH79_MACH_TEW_712BR is not set
++# CONFIG_ATH79_MACH_TEW_732BR is not set
++# CONFIG_ATH79_MACH_TL_MR11U is not set
++# CONFIG_ATH79_MACH_TL_MR13U is not set
++# CONFIG_ATH79_MACH_TL_MR3020 is not set
++# CONFIG_ATH79_MACH_TL_MR3X20 is not set
++# CONFIG_ATH79_MACH_TL_WA701ND_V2 is not set
++# CONFIG_ATH79_MACH_TL_WA830RE_V2 is not set
++# CONFIG_ATH79_MACH_TL_WA901ND is not set
++# CONFIG_ATH79_MACH_TL_WA901ND_V2 is not set
++# CONFIG_ATH79_MACH_TL_WAX50RE is not set
++# CONFIG_ATH79_MACH_TL_WDR3500 is not set
++# CONFIG_ATH79_MACH_TL_WDR4300 is not set
++# CONFIG_ATH79_MACH_TL_WR1041N_V2 is not set
++# CONFIG_ATH79_MACH_TL_WR1043ND is not set
++# CONFIG_ATH79_MACH_TL_WR1043ND_V2 is not set
++# CONFIG_ATH79_MACH_TL_WR2543N is not set
++# CONFIG_ATH79_MACH_TL_WR703N is not set
++# CONFIG_ATH79_MACH_TL_WR720N_V3 is not set
++# CONFIG_ATH79_MACH_TL_WR741ND is not set
++# CONFIG_ATH79_MACH_TL_WR741ND_V4 is not set
++# CONFIG_ATH79_MACH_TL_WR841N_V1 is not set
++# CONFIG_ATH79_MACH_TL_WR841N_V8 is not set
++# CONFIG_ATH79_MACH_TL_WR841N_V9 is not set
++# CONFIG_ATH79_MACH_TL_WR941ND is not set
++# CONFIG_ATH79_MACH_TUBE2H is not set
++# CONFIG_ATH79_MACH_UBNT is not set
++# CONFIG_ATH79_MACH_UBNT_XM is not set
++# CONFIG_ATH79_MACH_WHR_HP_G300N is not set
++# CONFIG_ATH79_MACH_WLAE_AG300N is not set
++# CONFIG_ATH79_MACH_WLR8100 is not set
++# CONFIG_ATH79_MACH_WNDAP360 is not set
++# CONFIG_ATH79_MACH_WNDR3700 is not set
++# CONFIG_ATH79_MACH_WNDR4300 is not set
++# CONFIG_ATH79_MACH_WNR2000 is not set
++# CONFIG_ATH79_MACH_WNR2000_V3 is not set
++# CONFIG_ATH79_MACH_WNR2200 is not set
++# CONFIG_ATH79_MACH_WP543 is not set
++# CONFIG_ATH79_MACH_WPE72 is not set
++# CONFIG_ATH79_MACH_WRT160NL is not set
++# CONFIG_ATH79_MACH_WRT400N is not set
++# CONFIG_ATH79_MACH_WZR_HP_AG300H is not set
++# CONFIG_ATH79_MACH_WZR_HP_G300NH is not set
++# CONFIG_ATH79_MACH_WZR_HP_G300NH2 is not set
++# CONFIG_ATH79_MACH_WZR_HP_G450H is not set
++# CONFIG_ATH79_MACH_ZCN_1523H is not set
++# CONFIG_ATH79_NVRAM is not set
++# CONFIG_ATH79_PCI_ATH9K_FIXUP is not set
+ # CONFIG_ATH79_ROUTERBOOT is not set
+ CONFIG_ATH79_WDT=y
+ CONFIG_CC_OPTIMIZE_FOR_SIZE=y
+@@ -149,10 +149,19 @@
+ CONFIG_CPU_R4K_FPU=y
+ CONFIG_CPU_SUPPORTS_32BIT_KERNEL=y
+ CONFIG_CPU_SUPPORTS_HIGHMEM=y
++CONFIG_CRC16=y
++CONFIG_CRC7=y
++CONFIG_CRC_ITU_T=y
++CONFIG_CRYPTO_CRC32C=y
++CONFIG_CRYPTO_HASH=y
++CONFIG_CRYPTO_HASH2=y
+ CONFIG_CSRC_R4K=y
+ CONFIG_DMA_NONCOHERENT=y
+ CONFIG_EARLY_PRINTK=y
+ CONFIG_ETHERNET_PACKET_MANGLE=y
++CONFIG_EXT4_FS=y
++CONFIG_FAT_FS=y
++CONFIG_FS_MBCACHE=y
+ CONFIG_GENERIC_ATOMIC64=y
+ CONFIG_GENERIC_CLOCKEVENTS=y
+ CONFIG_GENERIC_CLOCKEVENTS_BUILD=y
+@@ -195,7 +204,9 @@
+ CONFIG_HAVE_NET_DSA=y
+ CONFIG_HAVE_OPROFILE=y
+ CONFIG_HAVE_PERF_EVENTS=y
+-CONFIG_HW_HAS_PCI=y
++CONFIG_HZ=1000
++# CONFIG_HZ_100 is not set
++CONFIG_HZ_1000=y
+ CONFIG_HZ_PERIODIC=y
+ CONFIG_I2C=y
+ CONFIG_I2C_ALGOBIT=y
+@@ -210,18 +221,23 @@
+ CONFIG_IRQ_DOMAIN=y
+ CONFIG_IRQ_FORCED_THREADING=y
+ CONFIG_IRQ_WORK=y
++CONFIG_JBD2=y
+ CONFIG_LEDS_GPIO=y
+-# CONFIG_LEDS_WNDR3700_USB is not set
+ # CONFIG_M25PXX_USE_FAST_READ is not set
+ CONFIG_MARVELL_PHY=y
+ CONFIG_MDIO_BOARDINFO=y
++CONFIG_MEDIA_SUPPORT=y
+ CONFIG_MICREL_PHY=y
+ CONFIG_MIPS=y
++CONFIG_MIPS_FPU_EMU=y
+ # CONFIG_MIPS_HUGE_TLB_SUPPORT is not set
+ CONFIG_MIPS_L1_CACHE_SHIFT=5
+ CONFIG_MIPS_MACHINE=y
+ CONFIG_MIPS_MT_DISABLED=y
++CONFIG_MMC=y
++CONFIG_MMC_SPI=y
+ CONFIG_MODULES_USE_ELF_REL=y
++CONFIG_MSDOS_FS=y
+ CONFIG_MTD_CFI_ADV_OPTIONS=y
+ CONFIG_MTD_CFI_GEOMETRY=y
+ # CONFIG_MTD_CFI_I2 is not set
+@@ -240,24 +256,27 @@
+ CONFIG_MTD_SPLIT_SQUASHFS_ROOT=y
+ CONFIG_MTD_SPLIT_UIMAGE_FW=y
+ CONFIG_MTD_TPLINK_PARTS=y
+-CONFIG_MTD_WRT160NL_PARTS=y
+-CONFIG_MYLOADER=y
+ CONFIG_NEED_DMA_MAP_STATE=y
+ CONFIG_NEED_PER_CPU_KM=y
+ CONFIG_NET_DSA=y
+ CONFIG_NET_DSA_MV88E6060=y
+ CONFIG_NET_DSA_MV88E6063=y
+ CONFIG_NET_DSA_TAG_TRAILER=y
+-CONFIG_NO_GENERIC_PCI_IOPORT_MAP=y
++CONFIG_NLS=y
++CONFIG_NTFS_FS=y
++CONFIG_NTFS_RW=y
+ CONFIG_PAGEFLAGS_EXTENDED=y
+-CONFIG_PCI=y
+-CONFIG_PCI_AR724X=y
+-CONFIG_PCI_DISABLE_COMMON_QUIRKS=y
+-CONFIG_PCI_DOMAINS=y
++# CONFIG_PCI_AR724X is not set
+ CONFIG_PERF_USE_VMALLOC=y
+ CONFIG_PHYLIB=y
+-# CONFIG_PREEMPT_RCU is not set
+-# CONFIG_RCU_STALL_COMMON is not set
++CONFIG_PREEMPT=y
++CONFIG_PREEMPT_COUNT=y
++# CONFIG_PREEMPT_NONE is not set
++CONFIG_PREEMPT_RCU=y
++CONFIG_PWM=y
++# CONFIG_RCU_BOOST is not set
++CONFIG_RCU_CPU_STALL_VERBOSE=y
++CONFIG_RCU_STALL_COMMON=y
+ CONFIG_RTL8306_PHY=y
+ CONFIG_RTL8366RB_PHY=y
+ CONFIG_RTL8366S_PHY=y
+@@ -271,15 +290,23 @@
+ CONFIG_SERIAL_AR933X_NR_UARTS=2
+ # CONFIG_SLAB is not set
+ CONFIG_SLUB=y
+-CONFIG_SOC_AR71XX=y
+-CONFIG_SOC_AR724X=y
+-CONFIG_SOC_AR913X=y
++CONFIG_SND=y
++# CONFIG_SND_COMPRESS_OFFLOAD is not set
++# CONFIG_SND_EMU10K1_SEQ is not set
++# CONFIG_SND_OPL3_LIB_SEQ is not set
++# CONFIG_SND_OPL4_LIB_SEQ is not set
++# CONFIG_SND_RAWMIDI_SEQ is not set
++# CONFIG_SND_SBAWE_SEQ is not set
++# CONFIG_SOC_AR71XX is not set
++# CONFIG_SOC_AR724X is not set
++# CONFIG_SOC_AR913X is not set
+ CONFIG_SOC_AR933X=y
+-CONFIG_SOC_AR934X=y
+-CONFIG_SOC_QCA953X=y
+-CONFIG_SOC_QCA955X=y
++# CONFIG_SOC_AR934X is not set
++# CONFIG_SOC_QCA953X is not set
++# CONFIG_SOC_QCA955X is not set
++CONFIG_SOUND=y
++# CONFIG_SOUND_OSS_CORE is not set
+ CONFIG_SPI=y
+-CONFIG_SPI_AP83=y
+ CONFIG_SPI_ATH79=y
+ CONFIG_SPI_BITBANG=y
+ CONFIG_SPI_MASTER=y
+@@ -292,7 +319,21 @@
+ CONFIG_SYS_SUPPORTS_ARBIT_HZ=y
+ CONFIG_SYS_SUPPORTS_BIG_ENDIAN=y
+ CONFIG_TICK_CPU_ACCOUNTING=y
++# CONFIG_TINY_PREEMPT_RCU is not set
++# CONFIG_TINY_RCU is not set
++CONFIG_TREE_PREEMPT_RCU=y
++# CONFIG_TTPCI_EEPROM is not set
+ CONFIG_UIDGID_CONVERTED=y
+-CONFIG_USB_ARCH_HAS_XHCI=y
++CONFIG_UNINLINE_SPIN_UNLOCK=y
++CONFIG_USB=y
++CONFIG_USB_ACM=y
++# CONFIG_USB_ARCH_HAS_OHCI is not set
++# CONFIG_USB_ARCH_HAS_XHCI is not set
++CONFIG_USB_COMMON=y
++CONFIG_USB_EHCI_ATH79=y
++CONFIG_USB_EHCI_HCD=y
++CONFIG_USB_EHCI_HCD_PLATFORM=y
++CONFIG_USB_MON=y
+ CONFIG_USB_SUPPORT=y
++CONFIG_VFAT_FS=y
+ CONFIG_ZONE_DMA_FLAG=0
+Index: target/linux/ar71xx/image/Makefile
+===================================================================
+--- target/linux/ar71xx/image/Makefile
++++ target/linux/ar71xx/image/Makefile
+@@ -249,6 +249,7 @@
+ ap121_mtdlayout_2M=mtdparts=spi0.0:64k(u-boot)ro,1216k(rootfs),704k(kernel),64k(art)ro,1920k@0x10000(firmware)
+ ap121_mtdlayout_4M=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,2752k(rootfs),896k(kernel),64k(nvram),64k(art)ro,3648k@0x50000(firmware)
+ carambola2_mtdlayout_16M=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,16000k(firmware),64k(art)ro
++bsb_mtdlayout_16M=mtdparts=spi0.0:128k(u-boot),64k(u-boot-env),16128k(firmware),64k(art)
+ ap132_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1408k(kernel),6400k(rootfs),64k(art),7808k@0x50000(firmware)
+ ap135_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,14528k(rootfs),1472k(kernel),64k(art)ro,16000k@0x50000(firmware)
+ ap136_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,6336k(rootfs),1408k(kernel),64k(mib0),64k(art)ro,7744k@0x50000(firmware)
+@@ -1067,6 +1068,7 @@
+ $(eval $(call SingleProfile,AthLzma,64k,AP121_2M,ap121-2M,AP121,ttyATH0,115200,$$(ap121_mtdlayout_2M),RKuImage))
+ $(eval $(call SingleProfile,AthLzma,64k,AP121_4M,ap121-4M,AP121,ttyATH0,115200,$$(ap121_mtdlayout_4M),RKuImage))
+ $(eval $(call SingleProfile,AthLzma,64k,CARAMBOLA2,carambola2,CARAMBOLA2,ttyATH0,115200,$$(carambola2_mtdlayout_16M),KRuImage,65536))
++$(eval $(call SingleProfile,AthLzma,64k,BSB,bsb,BSB,ttyATH0,115200,$$(bsb_mtdlayout_16M),KRuImage,65536))
+ $(eval $(call SingleProfile,AthLzma,64k,AP121MINI,ap121-mini,AP121-MINI,ttyATH0,115200,$$(ap121_mtdlayout_4M),RKuImage))
+ $(eval $(call SingleProfile,AthLzma,64k,AP132,ap132,AP132,ttyS0,115200,$$(ap132_mtdlayout),KRuImage))
+ $(eval $(call SingleProfile,AthLzma,64k,AP135,ap135-020,AP135-020,ttyS0,115200,$$(ap135_mtdlayout),RKuImage))
+Index: target/linux/ar71xx/patches-3.10/610-MIPS-ath79-openwrt-machines.patch
+===================================================================
+--- target/linux/ar71xx/patches-3.10/610-MIPS-ath79-openwrt-machines.patch
++++ target/linux/ar71xx/patches-3.10/610-MIPS-ath79-openwrt-machines.patch
+@@ -1,6 +1,6 @@
+ --- a/arch/mips/ath79/machtypes.h
+ +++ b/arch/mips/ath79/machtypes.h
+-@@ -16,22 +16,144 @@
++@@ -16,22 +16,145 @@
+  
+  enum ath79_mach_type {
+  	ATH79_MACH_GENERIC = 0,
+@@ -24,6 +24,7 @@
+ +	ATH79_MACH_BHU_BXU2000N2_A1,	/* BHU BXU2000n-2 A1 */
+ +	ATH79_MACH_CAP4200AG,		/* Senao CAP4200AG */
+ +	ATH79_MACH_CARAMBOLA2,		/* 8devices Carambola2 */
+++	ATH79_MACH_BSB,			/* Smart Electronics Black Swift board */
+  	ATH79_MACH_DB120,		/* Atheros DB120 reference board */
+  	ATH79_MACH_PB44,		/* Atheros PB44 reference board */
+ +	ATH79_MACH_DIR_505_A1,		/* D-Link DIR-505 rev. A1 */
+@@ -972,7 +973,7 @@
+  
+  config ATH79_MACH_UBNT_XM
+  	bool "Ubiquiti Networks XM/UniFi boards"
+-@@ -83,6 +810,65 @@ config ATH79_MACH_UBNT_XM
++@@ -83,6 +810,75 @@ config ATH79_MACH_UBNT_XM
+  	  Say 'Y' here if you want your kernel to support the
+  	  Ubiquiti Networks XM (rev 1.0) board.
+  
+@@ -1025,6 +1026,16 @@
+ +	select ATH79_DEV_USB
+ +	select ATH79_DEV_WMAC
+ +
+++config ATH79_MACH_BSB
+++	bool "Smart Electronics Black Swift board"
+++	select SOC_AR933X
+++	select ATH79_DEV_ETH
+++	select ATH79_DEV_GPIO_BUTTONS
+++	select ATH79_DEV_LEDS_GPIO
+++	select ATH79_DEV_M25P80
+++	select ATH79_DEV_USB
+++	select ATH79_DEV_WMAC
+++
+ +config ATH79_MACH_BHU_BXU2000N2_A
+ +	bool "BHU BXU2000n-2 rev. A support"
+ +	select SOC_AR934X
+@@ -1060,7 +1071,7 @@
+  endif
+ --- a/arch/mips/ath79/Makefile
+ +++ b/arch/mips/ath79/Makefile
+-@@ -38,9 +38,90 @@ obj-$(CONFIG_ATH79_ROUTERBOOT)		+= route
++@@ -38,9 +38,91 @@ obj-$(CONFIG_ATH79_ROUTERBOOT)		+= route
+  #
+  # Machines
+  #
+@@ -1151,6 +1162,7 @@
+ +obj-$(CONFIG_ATH79_MACH_WZR_HP_G450H)	+= mach-wzr-hp-g450h.o
+ +obj-$(CONFIG_ATH79_MACH_ZCN_1523H)	+= mach-zcn-1523h.o
+ +obj-$(CONFIG_ATH79_MACH_CARAMBOLA2)	+= mach-carambola2.o
+++obj-$(CONFIG_ATH79_MACH_BSB)		+= mach-bsb.o
+ --- a/arch/mips/ath79/prom.c
+ +++ b/arch/mips/ath79/prom.c
+ @@ -180,6 +180,12 @@ void __init prom_init(void)
+Index: target/linux/ar71xx/patches-3.10/709-MIPS-ath79-add-NBG6716.patch
+===================================================================
+--- target/linux/ar71xx/patches-3.10/709-MIPS-ath79-add-NBG6716.patch
++++ target/linux/ar71xx/patches-3.10/709-MIPS-ath79-add-NBG6716.patch
+@@ -1,9 +1,9 @@
+ --- a/arch/mips/ath79/Makefile
+ +++ b/arch/mips/ath79/Makefile
+-@@ -130,3 +130,4 @@ obj-$(CONFIG_ATH79_MACH_WZR_HP_AG300H)	+
+- obj-$(CONFIG_ATH79_MACH_WZR_HP_G450H)	+= mach-wzr-hp-g450h.o
++@@ -131,3 +131,4 @@ obj-$(CONFIG_ATH79_MACH_WZR_HP_AG300H)	+
+  obj-$(CONFIG_ATH79_MACH_ZCN_1523H)	+= mach-zcn-1523h.o
+  obj-$(CONFIG_ATH79_MACH_CARAMBOLA2)	+= mach-carambola2.o
++ obj-$(CONFIG_ATH79_MACH_BSB)		+= mach-bsb.o
+ +obj-$(CONFIG_ATH79_MACH_NBG6716)	+= mach-nbg6716.o
+ --- a/arch/mips/ath79/machtypes.h
+ +++ b/arch/mips/ath79/machtypes.h
