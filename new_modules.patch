@@ -2619,7 +2619,7 @@ Index: package/kernel/timer-irq-handler/Makefile
 +include $(INCLUDE_DIR)/kernel.mk
 +
 +PKG_NAME:=timer-irq-handler
-+PKG_RELEASE:=1
++PKG_RELEASE:=2
 +
 +include $(INCLUDE_DIR)/package.mk
 +
@@ -2748,7 +2748,7 @@ Index: package/kernel/timer-irq-handler/src/timer-irq-handler.c
 +typedef struct
 +{
 +	pid_t			pid;
-+	unsigned int	timeout;			//	allways microseconds
++	unsigned int	timeout;			//	always microseconds
 +	int				only_once;			//	0 means "infinite" timer
 +
 +	unsigned int	next_time;			//	next time we'll send signal
@@ -2759,7 +2759,7 @@ Index: package/kernel/timer-irq-handler/src/timer-irq-handler.c
 +{
 +	int				timer;
 +	int				irq;
-+	unsigned int	timeout;			//	allways microseconds
++	unsigned int	timeout;			//	always microseconds
 +
 +	unsigned int	current_tick;		//	ticks counter
 +	unsigned int	ticks_in_timeout;	//	total ticks we should get
@@ -2849,8 +2849,8 @@ Index: package/kernel/timer-irq-handler/src/timer-irq-handler.c
 +	{
 +		if(handler->processes[i].pid)
 +		{
-+			if(	(handler->current_time >= handler->processes[i].next_time) ||
-+				(handler->current_interval > handler->processes[i].next_interval))
++			if(	(handler->current_time >= handler->processes[i].next_time) &&
++				(handler->current_interval >= handler->processes[i].next_interval))
 +			{
 +				if(	(send_timer_signal(handler->processes[i].pid,handler->timer,handler->processes[i].timeout) == 0) &&
 +					(!handler->processes[i].only_once))
