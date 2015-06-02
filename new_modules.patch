@@ -160,7 +160,7 @@ Index: package/kernel/gpio-irq-dht/src/gpio-irq-dht.c
 +{
 +	int				timer;
 +	int				irq;
-+	unsigned int	timeout;			//	allways microseconds
++	unsigned int	timeout;			//	always microseconds
 +} _timer_handler;
 +
 +static _timer_handler	_thandler;
@@ -2003,7 +2003,7 @@ Index: package/kernel/gpio-timer-pwm/src/gpio-timer-pwm.c
 +	int				timer;
 +	int				irq;
 +
-+	unsigned int	timeout;			//	allways microseconds
++	unsigned int	timeout;			//	always microseconds
 +
 +	unsigned int	gpio_mask;
 +
@@ -2021,8 +2021,8 @@ Index: package/kernel/gpio-timer-pwm/src/gpio-timer-pwm.c
 +typedef struct
 +{
 +	int				gpio;
-+	int				interval;			//	allways microseconds
-+	int				hl_part;			//	hi-level part of PWM, allways microseconds
++	int				interval;			//	always microseconds
++	int				hl_part;			//	hi-level part of PWM, always microseconds
 +
 +	int				old_value;
 +	int				cur_value;
