@@ -1,0 +1,13 @@
+Index: package/kernel/gpio-dht-handler/src/Makefile
+===================================================================
+--- feeds/packages/multimedia/mjpg-streamer/Makefile
++++ feeds/packages/multimedia/mjpg-streamer/Makefile
+@@ -52,7 +52,7 @@
+ define Download/cambozola
+   URL:=http://www.andywilcock.com/code/cambozola
+   FILE:=$(CAMBOZOLA)
+-  MD5SUM:=c9b0da91f8e6e72efccd307e04e2b75b
++  MD5SUM:=35c45188aa9635aef2b745c35c311396
+ endef
+ 
+ # Fetch latest cambozola that works with latest Java(s)
