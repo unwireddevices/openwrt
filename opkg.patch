@@ -1,0 +1,12 @@
+Index: package/system/opkg/Makefile
+===================================================================
+--- package/system/opkg/Makefile
++++ package/system/opkg/Makefile
+@@ -117,6 +117,7 @@
+ 	done
+     endif
+   endif
++	echo "src/gz black_swift http://files.black-swift.com/files/openwrt/bbreaker/1.0/packages/" >> $(1)/etc/opkg.conf
+ 	$(VERSION_SED) $(1)/etc/opkg.conf
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/opkg-cl $(1)/bin/opkg
+ endef
