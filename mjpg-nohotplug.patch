@@ -1,0 +1,25 @@
+Index: feeds/packages/multimedia/mjpg-streamer/files/mjpg-streamer.hotplug
+===================================================================
+--- feeds/packages/multimedia/mjpg-streamer/files/mjpg-streamer.hotplug
++++ feeds/packages/multimedia/mjpg-streamer/files/mjpg-streamer.hotplug
+@@ -1,10 +1,10 @@
+-case "$ACTION" in
+-	add)
+-		# start process
+-		/etc/init.d/mjpg-streamer start
+-		;;
+-	remove)
+-		# stop process
+-		/etc/init.d/mjpg-streamer stop
+-		;;
+-esac
++#case "$ACTION" in
++#	add)
++#		# start process
++#		/etc/init.d/mjpg-streamer start
++#		;;
++#	remove)
++#		# stop process
++#		/etc/init.d/mjpg-streamer stop
++#		;;
++#esac
