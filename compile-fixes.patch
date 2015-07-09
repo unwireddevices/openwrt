@@ -1,0 +1,63 @@
+Index: package/kernel/gpio-dht-handler/src/Makefile
+===================================================================
+--- feeds/packages/multimedia/mjpg-streamer/Makefile
++++ feeds/packages/multimedia/mjpg-streamer/Makefile
+@@ -52,7 +52,7 @@
+ define Download/cambozola
+   URL:=http://www.andywilcock.com/code/cambozola
+   FILE:=$(CAMBOZOLA)
+-  MD5SUM:=c9b0da91f8e6e72efccd307e04e2b75b
++  MD5SUM:=35c45188aa9635aef2b745c35c311396
+ endef
+ 
+ # Fetch latest cambozola that works with latest Java(s)
+Index: feeds/oldpackages/net/openswan/Makefile
+==============================================
+--- feeds/oldpackages/net/openswan/Makefile
++++ feeds/oldpackages/net/openswan/Makefile
+@@ -9,12 +9,12 @@
+ include $(INCLUDE_DIR)/kernel.mk
+ 
+ PKG_NAME:=openswan
+-PKG_VERSION:=2.6.41
++PKG_VERSION:=2.6.43
+ PKG_RELEASE:=1
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+ PKG_SOURCE_URL:=http://www.openswan.org/download
+-PKG_MD5SUM:=da2e8b02ecc30a408cc5766767fef84f
++PKG_MD5SUM:=87c4d7d4e537df57dc8e67c60e514724
+ 
+ PKG_BUILD_PARALLEL:=1
+ PKG_INSTALL:=1
+Index: feeds/oldpackages/net/openswan/patches/100-cross_compile.patch
+=====================================================================
+--- feeds/oldpackages/net/openswan/patches/100-cross_compile.patch
++++ /dev/null
+@@ -1,26 +0,0 @@
+---- a/programs/pluto/Makefile
+-+++ b/programs/pluto/Makefile
+-@@ -66,10 +66,6 @@ CFLAGS+=-DALLOW_MICROSOFT_BAD_PROPOSAL
+- 
+- ALLFLAGS = $(CPPFLAGS) $(CFLAGS) ${CROSSFLAGS}
+- 
+--ifneq ($(LD_LIBRARY_PATH),)
+--LDFLAGS+=-L$(LD_LIBRARY_PATH)
+--endif
+--
+- LIBSADNS = $(OPENSWANLIB)
+- LIBSADNS += -lresolv # -lefence
+- 
+---- a/programs/Makefile.program
+-+++ b/programs/Makefile.program
+-@@ -55,10 +55,6 @@ endif
+- 
+- CFLAGS+= ${WERROR}
+- 
+--ifneq ($(LD_LIBRARY_PATH),)
+--LDFLAGS=-L$(LD_LIBRARY_PATH)
+--endif
+--
+- ifeq ($(USE_DMALLOC),true)
+- CFLAGS+=-DDMALLOC
+- LIBS+= -ldmalloc
