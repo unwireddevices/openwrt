@@ -11,7 +11,7 @@ Patches was tested with OpenWRT 14.07 r46255. To download it, use *svn co -r 462
 
 *patch -p0 &lt; new_files.patch* — avahi-daemon and uboot-envtools configuration files
 
-*patch -p0 &lt; mjpg-fix.patch* — fix Cambozola package md5 sum (needed for mjpg-streamer)
+*patch -p0 &lt; compile-fixes.patch* — fix some compilation errors by updating package versions
 
 *patch -p0 &lt; mjpg-enable.patch* — enable mjpg_streamer service by default
 
