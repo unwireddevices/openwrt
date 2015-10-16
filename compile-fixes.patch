@@ -7,7 +7,7 @@ Index: package/kernel/gpio-dht-handler/src/Makefile
    URL:=http://www.andywilcock.com/code/cambozola
    FILE:=$(CAMBOZOLA)
 -  MD5SUM:=c9b0da91f8e6e72efccd307e04e2b75b
-+  MD5SUM:=35c45188aa9635aef2b745c35c311396
++  MD5SUM:=1c41f0204a146264e8eba7ddbe2ba0a6
  endef
  
  # Fetch latest cambozola that works with latest Java(s)
