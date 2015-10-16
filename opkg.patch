@@ -6,7 +6,7 @@ Index: package/system/opkg/Makefile
  	done
      endif
    endif
-+	echo "src/gz black_swift http://files.black-swift.com/files/openwrt/bbreaker/1.0/packages/" >> $(1)/etc/opkg.conf
++	echo "src/gz unwired_one http://files.unwireddevices.com/files/openwrt/bbreaker/1.0/packages/" >> $(1)/etc/opkg.conf
  	$(VERSION_SED) $(1)/etc/opkg.conf
  	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/opkg-cl $(1)/bin/opkg
  endef

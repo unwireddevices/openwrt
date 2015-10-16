@@ -63,7 +63,7 @@ Index: package/kernel/gpio-dht-handler/src/gpio-dht-handler.c
 + *  GPIO IRQ DHT sensor module for AR9331
 + *
 + *  Copyright (C) 2015 Dmitriy Zherebkov <dzh@black-swift.com>
-+ *  Copyright (C) 2015 Oleg Artamonov <oleg@black-swift.com>
++ *  Copyright (C) 2015 Oleg Artamonov <oa@unwds.com>
 + *
 + *  This program is free software; you can redistribute it and/or modify it
 + *  under the terms of the GNU General Public License version 2 as published
@@ -518,7 +518,7 @@ Index: package/kernel/gpio-dht-handler/src/gpio-dht-handler.c
 +////////////////////////////////////////////////////////////////////////////////////////////
 +
 +MODULE_LICENSE("GPL");
-+MODULE_AUTHOR("Black Swift team");
++MODULE_AUTHOR("Unwired Devices");
 +
 +////////////////////////////////////////////////////////////////////////////////////////////
 Index: package/kernel/gpio-irq-dht/Makefile
