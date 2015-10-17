@@ -1,12 +1,10 @@
-Index: package/system/opkg/Makefile
+Index: package/system/opkg/files/customfeeds.conf
 ===================================================================
---- package/system/opkg/Makefile
-+++ package/system/opkg/Makefile
-@@ -117,6 +117,7 @@
- 	done
-     endif
-   endif
-+	echo "src/gz unwired_one http://files.unwireddevices.com/files/openwrt/bbreaker/1.0/packages/" >> $(1)/etc/opkg.conf
- 	$(VERSION_SED) $(1)/etc/opkg.conf
- 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/opkg-cl $(1)/bin/opkg
- endef
+--- package/system/opkg/files/customfeeds.conf
++++ package/system/opkg/files/customfeeds.conf
+@@ -1,3 +1,5 @@
+ # add your custom package feeds here
+ #
+ # src/gz example_feed_name http://www.example.com/path/to/files
++
++src/gz unwired_one http://files.unwireddevices.com/files/openwrt/ccalmer/1.0/packages/

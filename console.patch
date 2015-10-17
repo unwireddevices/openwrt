@@ -1,7 +1,7 @@
-Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/arch/mips/ath79/prom.c
+Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/arch/mips/ath79/prom.c
 ===================================================================
---- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/arch/mips/ath79/prom.c
-+++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/arch/mips/ath79/prom.c
+--- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/arch/mips/ath79/prom.c
++++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/arch/mips/ath79/prom.c
 @@ -73,7 +73,7 @@
  #ifdef CONFIG_IMAGE_CMDLINE_HACK
  extern char __image_cmdline[];
@@ -136,11 +136,11 @@ Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.1
  		return;
  
  	ath79_prom_init_cmdline(fw_arg0, (char **)fw_arg1);
-Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/arch/mips/kernel/setup.c
+Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/arch/mips/kernel/setup.c
 ===================================================================
---- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/arch/mips/kernel/setup.c
-+++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/arch/mips/kernel/setup.c
-@@ -729,7 +729,44 @@
+--- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/arch/mips/kernel/setup.c
++++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/arch/mips/kernel/setup.c
+@@ -764,7 +764,44 @@
  	prom_init();
  
  #ifdef CONFIG_EARLY_PRINTK
@@ -186,18 +186,18 @@ Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.1
  #endif
  	cpu_report();
  	check_bugs_early();
-Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/init/main.c
+Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/init/main.c
 ===================================================================
---- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/init/main.c
-+++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.10.49/init/main.c
-@@ -498,8 +498,8 @@
+--- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/init/main.c
++++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.21/init/main.c
+@@ -550,8 +550,8 @@
   */
  	boot_cpu_init();
  	page_address_init();
 -	pr_notice("%s", linux_banner);
  	setup_arch(&command_line);
 +	pr_notice("%s", linux_banner);
- 	mm_init_owner(&init_mm, &init_task);
  	mm_init_cpumask(&init_mm);
+	mangle_bootargs(command_line);
  	setup_command_line(command_line);
 

@@ -1,24 +1,15 @@
-Index: target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
-===================================================================
 --- /dev/null
-+++ target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
-@@ -0,0 +1,253 @@
++++ target/linux/ar71xx/patches-3.18/739-MIPS-ath79-add-gpio-irq-support.patch
+@@ -0,0 +1,225 @@
 +--- a/arch/mips/ath79/gpio.c
 ++++ b/arch/mips/ath79/gpio.c
-+@@ -1,6 +1,7 @@
-+ /*
-+  *  Atheros AR71XX/AR724X/AR913X GPIO API support
-+  *
-++ *  Copyright (c) 2013 The Linux Foundation. All rights reserved.
-+  *  Copyright (C) 2010-2011 Jaiganesh Narayanan <jnarayanan@atheros.com>
-+  *  Copyright (C) 2008-2011 Gabor Juhos <juhosg@openwrt.org>
-+  *  Copyright (C) 2008 Imre Kaloz <kaloz@openwrt.org>
-+@@ -20,9 +21,13 @@
++@@ -20,9 +20,14 @@
 + #include <linux/io.h>
 + #include <linux/ioport.h>
 + #include <linux/gpio.h>
 ++#include <linux/irq.h>
 ++#include <linux/interrupt.h>
+++
 ++#include <linux/of.h>
 + 
 + #include <asm/mach-ath79/ar71xx_regs.h>
@@ -40,11 +31,11 @@ Index: target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
 ++
 + static void __ath79_gpio_set_value(unsigned gpio, int value)
 + {
-+ 	void __iomem *base = ath79_gpio_base;
-+@@ -208,6 +220,143 @@ void __init ath79_gpio_output_select(uns
-+ 	spin_unlock_irqrestore(&ath79_gpio_lock, flags);
++	void __iomem *base = ath79_gpio_base;
++@@ -209,6 +221,133 @@ void __init ath79_gpio_output_select(uns
++	spin_unlock_irqrestore(&ath79_gpio_lock, flags);
 + }
-+ 
++
 ++static int ath79_gpio_irq_type(struct irq_data *d, unsigned type)
 ++{
 ++	int offset = d->irq - ATH79_GPIO_IRQ_BASE;
@@ -112,42 +103,35 @@ Index: target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
 ++	return 0;
 ++}
 ++
-++static void ath79_gpio_irq_unmask(struct irq_data *d)
+++static void ath79_gpio_irq_enable(struct irq_data *d)
 ++{
 ++	int offset = d->irq - ATH79_GPIO_IRQ_BASE;
 ++	void __iomem *base = ath79_gpio_base;
 ++
 ++	__raw_writel(__raw_readl(base + AR71XX_GPIO_REG_INT_ENABLE) | (1 << offset),
 ++		     base + AR71XX_GPIO_REG_INT_ENABLE);
-++	/* flush write */
-++	(void) __raw_readl(base + AR71XX_GPIO_REG_INT_ENABLE);
 ++}
 ++
-++static void ath79_gpio_irq_mask(struct irq_data *d)
+++static void ath79_gpio_irq_disable(struct irq_data *d)
 ++{
 ++	int offset = d->irq - ATH79_GPIO_IRQ_BASE;
 ++	void __iomem *base = ath79_gpio_base;
 ++
 ++	__raw_writel(__raw_readl(base + AR71XX_GPIO_REG_INT_ENABLE) & ~(1 << offset),
 ++		     base + AR71XX_GPIO_REG_INT_ENABLE);
-++	/* flush write */
-++	(void) __raw_readl(base + AR71XX_GPIO_REG_INT_ENABLE);
 ++}
 ++
 ++static struct irq_chip ath79_gpio_irqchip = {
-++	.name		= "GPIO",
-++	.irq_mask	= ath79_gpio_irq_mask,
-++	.irq_mask_ack	= ath79_gpio_irq_mask,
-++	.irq_unmask	= ath79_gpio_irq_unmask,
-++	.irq_set_type	= ath79_gpio_irq_type,
+++	.name = "GPIO",
+++	.irq_enable = ath79_gpio_irq_enable,
+++	.irq_disable = ath79_gpio_irq_disable,
+++	.irq_set_type = ath79_gpio_irq_type,
 ++};
 ++
-++static void ath79_gpio_irq(unsigned int irq, struct irq_desc *desc)
+++static irqreturn_t ath79_gpio_irq(int irq, void *dev)
 ++{
 ++	void __iomem *base = ath79_gpio_base;
-++	void __iomem *base2 = ath79_reset_base;
 ++	unsigned int stat = __raw_readl(base + AR71XX_GPIO_REG_INT_PENDING);
-++	int irq_base = ATH79_GPIO_IRQ_BASE;
 ++
 ++	while (stat) {
 ++		int bit_num = __ffs(stat);
@@ -158,15 +142,11 @@ Index: target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
 ++				base + AR71XX_GPIO_REG_INT_POLARITY);
 ++		}
 ++
-++		generic_handle_irq(irq_base + bit_num);
+++		generic_handle_irq(ATH79_GPIO_IRQ(bit_num));
 ++		stat &= ~bit;
 ++	}
 ++
-++	/* TODO: reset GPIO MISC INT - this is not the usual place to do this */
-++	__raw_writel(__raw_readl(base2 + AR71XX_RESET_REG_MISC_INT_STATUS) & ~MISC_INT_GPIO,
-++		 base2 + AR71XX_RESET_REG_MISC_INT_STATUS);
-++	/* and flush write */
-++	__raw_readl(base2 + AR71XX_RESET_REG_MISC_INT_STATUS);
+++	return IRQ_HANDLED;
 ++}
 ++
 ++static int __init ath79_gpio_irq_init(struct gpio_chip *chip)
@@ -175,34 +155,30 @@ Index: target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
 ++	int irq_base = ATH79_GPIO_IRQ_BASE;
 ++
 ++	for (irq = irq_base; irq < irq_base + chip->ngpio; irq++) {
-++		irq_set_chip_and_handler(irq, &ath79_gpio_irqchip, handle_level_irq);
+++		irq_set_chip_data(irq, chip);
+++		irq_set_chip_and_handler(irq, &ath79_gpio_irqchip, handle_simple_irq);
+++		irq_set_noprobe(irq);
 ++	}
-++	irq_set_chained_handler(ATH79_MISC_IRQ(2), ath79_gpio_irq);
+++
 ++	return 0;
 ++}
-++
 ++
 + void __init ath79_gpio_init(void)
 + {
 + 	int err;
-+@@ -237,10 +385,15 @@ void __init ath79_gpio_init(void)
-+ 		ath79_gpio_chip.direction_input = ar934x_gpio_direction_input;
-+ 		ath79_gpio_chip.direction_output = ar934x_gpio_direction_output;
-+ 	}
-++#ifdef CONFIG_OF_GPIO
-++	ath79_gpio_chip.of_node = of_find_node_by_path("/ath79-gpio");
-++#endif
-+ 
++@@ -245,6 +384,10 @@ void __init ath79_gpio_init(void)
 + 	err = gpiochip_add(&ath79_gpio_chip);
 + 	if (err)
-+ 		panic("cannot add AR71xx GPIO chip, error=%d", err);
++		panic("cannot add AR71xx GPIO chip, error=%d", err);
 ++
 ++	ath79_gpio_irq_init(&ath79_gpio_chip);
+++
+++	request_irq(ATH79_MISC_IRQ(2), ath79_gpio_irq, 0, "ath79-gpio", NULL);
 + }
-+ 
++
 + int gpio_get_value(unsigned gpio)
-+@@ -263,14 +416,22 @@ EXPORT_SYMBOL(gpio_set_value);
-+ 
++@@ -267,14 +410,22 @@ EXPORT_SYMBOL(gpio_set_value);
++
 + int gpio_to_irq(unsigned gpio)
 + {
 +-	/* FIXME */
@@ -214,7 +190,7 @@ Index: target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
 ++	return ATH79_GPIO_IRQ_BASE + gpio;
 + }
 + EXPORT_SYMBOL(gpio_to_irq);
-+ 
++
 + int irq_to_gpio(unsigned irq)
 + {
 +-	/* FIXME */
@@ -230,13 +206,7 @@ Index: target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
 + EXPORT_SYMBOL(irq_to_gpio);
 +--- a/arch/mips/include/asm/mach-ath79/irq.h
 ++++ b/arch/mips/include/asm/mach-ath79/irq.h
-+@@ -1,4 +1,5 @@
-+ /*
-++ *  Copyright (c) 2013 The Linux Foundation. All rights reserved.
-+  *  Copyright (C) 2008-2010 Gabor Juhos <juhosg@openwrt.org>
-+  *  Copyright (C) 2008 Imre Kaloz <kaloz@openwrt.org>
-+  *
-+@@ -10,7 +11,7 @@
++@@ -10,7 +10,7 @@
 + #define __ASM_MACH_ATH79_IRQ_H
 + 
 + #define MIPS_CPU_IRQ_BASE	0
@@ -245,14 +215,14 @@ Index: target/linux/ar71xx/patches-3.10/728-MIPS-ath79-add-gpio-irq.patch
 + 
 + #define ATH79_CPU_IRQ(_x)	(MIPS_CPU_IRQ_BASE + (_x))
 + 
-+@@ -30,6 +31,10 @@
++@@ -30,6 +30,10 @@
 + #define ATH79_IP3_IRQ_COUNT     3
 + #define ATH79_IP3_IRQ(_x)       (ATH79_IP3_IRQ_BASE + (_x))
 + 
-++#define ATH79_GPIO_IRQ_BASE	(ATH79_IP3_IRQ_BASE + ATH79_IP3_IRQ_COUNT)
-++#define ATH79_GPIO_IRQ_COUNT	32
-++#define ATH79_GPIO_IRQ(_x)	(ATH79_GPIO_IRQ_BASE + (_x))
+++#define ATH79_GPIO_IRQ_BASE     (ATH79_IP3_IRQ_BASE + ATH79_IP3_IRQ_COUNT)
+++#define ATH79_GPIO_IRQ_COUNT    32
+++#define ATH79_GPIO_IRQ(_x)      (ATH79_GPIO_IRQ_BASE + (_x))
 ++
 + #include_next <irq.h>
-+ 
++
 + #endif /* __ASM_MACH_ATH79_IRQ_H */

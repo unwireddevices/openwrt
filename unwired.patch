@@ -49,7 +49,7 @@ Index: package/base-files/files/lib/functions/uci-defaults.sh
 ===================================================================
 --- package/base-files/files/lib/functions/uci-defaults.sh
 +++ package/base-files/files/lib/functions/uci-defaults.sh
-@@ -177,7 +177,25 @@
+@@ -215,7 +215,25 @@
  set network.lan.proto='static'
  set network.lan.ipaddr='192.168.1.1'
  set network.lan.netmask='255.255.255.0'
@@ -80,7 +80,7 @@ Index: package/kernel/mac80211/files/lib/wifi/mac80211.sh
 ===================================================================
 --- package/kernel/mac80211/files/lib/wifi/mac80211.sh
 +++ package/kernel/mac80211/files/lib/wifi/mac80211.sh
-@@ -102,14 +102,14 @@
+@@ -114,14 +114,14 @@
  	option hwmode	11${mode_band}
  $dev_id
  $ht_capab
@@ -103,37 +103,37 @@ Index: target/linux/ar71xx/base-files/etc/diag.sh
 ===================================================================
 --- target/linux/ar71xx/base-files/etc/diag.sh
 +++ target/linux/ar71xx/base-files/etc/diag.sh
-@@ -75,6 +75,9 @@
- 	el-m150)
- 		status_led="EasyLink:green:system"
- 		;;
+@@ -94,6 +94,9 @@
+	el-m150)
+		status_led="easylink:green:system"
+		;;
 +	unwone)
 +		status_led="unwone:red:sys"
 +		;;
- 	gl-inet)
- 		status_led="gl-connect:green:lan"
- 		;;
+	ew-dorin | ew-dorin-router)
+		status_led="dorin:green:status"
+		;;
 Index: target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
 ===================================================================
 --- target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
 +++ target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
-@@ -61,6 +61,10 @@
- 	ucidef_set_led_wlan "wlan" "WLAN" "carambola2:green:wlan" "phy0tpt"
+@@ -514,6 +514,10 @@ tube2h)
+ 	ucidef_set_led_rssi "signal4" "SIGNAL4" "alfa:green:signal4" "wlan0" "76" "100" "-75" "13"
  	;;
  
 +unwone)
 +	ucidef_set_led_default "sys" "SYS" "unwone:red:sys" "1"
 +	;;
 +
- db120)
- 	ucidef_set_led_usbdev "usb" "USB" "db120:green:usb" "1-1"
+ wrt160nl)
+ 	ucidef_set_led_wlan "wlan" "WLAN" "wrt160nl:blue:wlan" "phy0tpt"
  	;;
 Index: target/linux/ar71xx/base-files/etc/uci-defaults/02_network
 ===================================================================
 --- target/linux/ar71xx/base-files/etc/uci-defaults/02_network
 +++ target/linux/ar71xx/base-files/etc/uci-defaults/02_network
-@@ -172,6 +172,13 @@
- 	ucidef_set_interface_lan "eth0"
+@@ -191,6 +191,13 @@
+ 	ucidef_add_switch_vlan "switch0" "1" "0 1 3"
  	;;
  
 +unwone)
@@ -150,11 +150,11 @@ Index: target/linux/ar71xx/base-files/lib/ar71xx.sh
 ===================================================================
 --- target/linux/ar71xx/base-files/lib/ar71xx.sh
 +++ target/linux/ar71xx/base-files/lib/ar71xx.sh
-@@ -736,6 +736,9 @@
+@@ -919,6 +919,9 @@
  	"8devices Carambola2"*)
  		name="carambola2"
  		;;
-+	"Unwired Devices Unwired One board"*)
++	"Unwired Devices Unwired One"*)
 +		name="unwone"
 +		;;
  	*"Sitecom WLR-8100")
@@ -164,14 +164,14 @@ Index: target/linux/ar71xx/base-files/lib/upgrade/platform.sh
 ===================================================================
 --- target/linux/ar71xx/base-files/lib/upgrade/platform.sh
 +++ target/linux/ar71xx/base-files/lib/upgrade/platform.sh
-@@ -214,6 +214,7 @@
- 		return 0
- 		;;
- 
+@@ -220,6 +220,7 @@
+	hornet-ub-x2 | \
+	mzk-w04nu | \
+	mzk-w300nh | \
 +	unwone | \
- 	dir-825-b1 | \
- 	tew-673gru)
- 		dir825b_check_image "$1" && return 0
+	tew-632brp | \
+	tew-712br | \
+	tew-732br | \
 Index: target/linux/ar71xx/files/arch/mips/ath79/mach-unwone.c
 ===================================================================
 --- /dev/null
@@ -257,7 +257,7 @@ Index: target/linux/ar71xx/files/arch/mips/ath79/mach-unwone.c
 +			    art + UNWONE_MAC_OFFSET);
 +}
 +
-+MIPS_MACHINE(ATH79_MACH_UNWONE, "UNWONE", "Unwired Devices Unwired One board",
++MIPS_MACHINE(ATH79_MACH_UNWONE, "UNWONE", "Unwired Devices Unwired One",
 +		unwone_setup);
 +
 Index: target/linux/ar71xx/generic/profiles/unwireddevices.mk
@@ -273,7 +273,7 @@ Index: target/linux/ar71xx/generic/profiles/unwireddevices.mk
 +#
 +
 +define Profile/UNWONE
-+        NAME:=Unwired Devices Unwired One board
++        NAME:=Unwired Devices Unwired One
 +        PACKAGES:=kmod-usb-core kmod-usb2 kmod-usb-audio kmod-sound-core
 +endef
 +
@@ -282,13 +282,24 @@ Index: target/linux/ar71xx/generic/profiles/unwireddevices.mk
 +endef
 +
 +$(eval $(call Profile,UNWONE))
-Index: target/linux/ar71xx/config-3.10
+Index: target/linux/ar71xx/config-3.18
 ===================================================================
---- target/linux/ar71xx/config-3.10
-+++ target/linux/ar71xx/config-3.10
-@@ -13,123 +13,123 @@
+--- target/linux/ar71xx/config-3.18
++++ target/linux/ar71xx/config-3.18
+@@ -2,7 +2,7 @@ CONFIG_AG71XX=y
+ CONFIG_AG71XX_AR8216_SUPPORT=y
+ # CONFIG_AG71XX_DEBUG is not set
+ # CONFIG_AG71XX_DEBUG_FS is not set
+-CONFIG_AT803X_PHY=y
++# CONFIG_ALLOW_DEV_COREDUMP is not set
+ CONFIG_AR8216_PHY=y
+ CONFIG_AR8216_PHY_LEDS=y
+ CONFIG_ARCH_BINFMT_ELF_RANDOMIZE_PIE=y
+@@ -16,84 +16,84 @@ CONFIG_ARCH_MIGHT_HAVE_PC_SERIO=y
+ CONFIG_ARCH_REQUIRE_GPIOLIB=y
  CONFIG_ARCH_SUSPEND_POSSIBLE=y
  CONFIG_ARCH_WANT_IPC_PARSE_VERSION=y
++CONFIG_AT803X_PHY=y
  CONFIG_ATH79=y
 -CONFIG_ATH79_DEV_AP9X_PCI=y
 -CONFIG_ATH79_DEV_DSA=y
@@ -315,30 +326,45 @@ Index: target/linux/ar71xx/config-3.10
 -CONFIG_ATH79_MACH_AP96=y
 -CONFIG_ATH79_MACH_ARCHER_C7=y
 -CONFIG_ATH79_MACH_AW_NR580=y
+-CONFIG_ATH79_MACH_ANTMINER_S1=y
+-CONFIG_ATH79_MACH_ANTMINER_S3=y
 -CONFIG_ATH79_MACH_BHU_BXU2000N2_A=y
+-CONFIG_ATH79_MACH_BSB=y
 -CONFIG_ATH79_MACH_CAP4200AG=y
 -CONFIG_ATH79_MACH_CARAMBOLA2=y
+-CONFIG_ATH79_MACH_CPE510=y
 -CONFIG_ATH79_MACH_DB120=y
+-CONFIG_ATH79_MACH_DGL_5500_A1=y
+-CONFIG_ATH79_MACH_DHP_1565_A1=y
 -CONFIG_ATH79_MACH_DIR_505_A1=y
 -CONFIG_ATH79_MACH_DIR_600_A1=y
 -CONFIG_ATH79_MACH_DIR_615_C1=y
+-CONFIG_ATH79_MACH_DIR_615_I1=y
 -CONFIG_ATH79_MACH_DIR_825_B1=y
 -CONFIG_ATH79_MACH_DIR_825_C1=y
+-CONFIG_ATH79_MACH_DLAN_PRO_1200_AC=y
+-CONFIG_ATH79_MACH_DLAN_PRO_500_WP=y
 -CONFIG_ATH79_MACH_DRAGINO2=y
 -CONFIG_ATH79_MACH_EAP300V2=y
 -CONFIG_ATH79_MACH_EAP7660D=y
 -CONFIG_ATH79_MACH_EL_M150=y
 -CONFIG_ATH79_MACH_EL_MINI=y
+-CONFIG_ATH79_MACH_EPG5000=y
 -CONFIG_ATH79_MACH_ESR1750=y
 -CONFIG_ATH79_MACH_ESR900=y
 -CONFIG_ATH79_MACH_EW_DORIN=y
+-CONFIG_ATH79_MACH_F9K1115V2=y
 -CONFIG_ATH79_MACH_GL_INET=y
 -CONFIG_ATH79_MACH_GS_OOLITE=y
 -CONFIG_ATH79_MACH_HIWIFI_HC6361=y
 -CONFIG_ATH79_MACH_HORNET_UB=y
 -CONFIG_ATH79_MACH_JA76PF=y
 -CONFIG_ATH79_MACH_JWAP003=y
+-CONFIG_ATH79_MACH_MC_MAC1200R=y
+-CONFIG_ATH79_MACH_MR16=y
+-CONFIG_ATH79_MACH_MR12=y
 -CONFIG_ATH79_MACH_MR600=y
+-CONFIG_ATH79_MACH_MR900=y
 -CONFIG_ATH79_MACH_MYNET_N600=y
 -CONFIG_ATH79_MACH_MYNET_N750=y
 -CONFIG_ATH79_MACH_MYNET_REXT=y
@@ -348,13 +374,18 @@ Index: target/linux/ar71xx/config-3.10
 -CONFIG_ATH79_MACH_NBG6716=y
 -CONFIG_ATH79_MACH_OM2P=y
 -CONFIG_ATH79_MACH_OM5P=y
+-CONFIG_ATH79_MACH_ONION_OMEGA=y
 -CONFIG_ATH79_MACH_PB42=y
 -CONFIG_ATH79_MACH_PB44=y
 -CONFIG_ATH79_MACH_PB92=y
+-CONFIG_ATH79_MACH_QIHOO_C301=y
+-CONFIG_ATH79_MACH_R6100=y
 +# CONFIG_ATH79_MACH_ALFA_AP96 is not set
 +# CONFIG_ATH79_MACH_ALFA_NX is not set
 +# CONFIG_ATH79_MACH_ALL0258N is not set
 +# CONFIG_ATH79_MACH_ALL0315N is not set
++# CONFIG_ATH79_MACH_ANTMINER_S1 is not set
++# CONFIG_ATH79_MACH_ANTMINER_S3 is not set
 +# CONFIG_ATH79_MACH_AP113 is not set
 +# CONFIG_ATH79_MACH_AP121 is not set
 +# CONFIG_ATH79_MACH_AP132 is not set
@@ -365,30 +396,42 @@ Index: target/linux/ar71xx/config-3.10
 +# CONFIG_ATH79_MACH_ARCHER_C7 is not set
 +# CONFIG_ATH79_MACH_AW_NR580 is not set
 +# CONFIG_ATH79_MACH_BHU_BXU2000N2_A is not set
-+CONFIG_ATH79_MACH_UNWONE=y
++# CONFIG_ATH79_MACH_BSB is not set
 +# CONFIG_ATH79_MACH_CAP4200AG is not set
 +# CONFIG_ATH79_MACH_CARAMBOLA2 is not set
++# CONFIG_ATH79_MACH_CPE510 is not set
 +# CONFIG_ATH79_MACH_DB120 is not set
++# CONFIG_ATH79_MACH_DGL_5500_A1 is not set
++# CONFIG_ATH79_MACH_DHP_1565_A1 is not set
 +# CONFIG_ATH79_MACH_DIR_505_A1 is not set
 +# CONFIG_ATH79_MACH_DIR_600_A1 is not set
 +# CONFIG_ATH79_MACH_DIR_615_C1 is not set
++# CONFIG_ATH79_MACH_DIR_615_I1 is not set
 +# CONFIG_ATH79_MACH_DIR_825_B1 is not set
 +# CONFIG_ATH79_MACH_DIR_825_C1 is not set
++# CONFIG_ATH79_MACH_DLAN_PRO_1200_AC is not set
++# CONFIG_ATH79_MACH_DLAN_PRO_500_WP is not set
 +# CONFIG_ATH79_MACH_DRAGINO2 is not set
 +# CONFIG_ATH79_MACH_EAP300V2 is not set
 +# CONFIG_ATH79_MACH_EAP7660D is not set
 +# CONFIG_ATH79_MACH_EL_M150 is not set
 +# CONFIG_ATH79_MACH_EL_MINI is not set
++# CONFIG_ATH79_MACH_EPG5000 is not set
 +# CONFIG_ATH79_MACH_ESR1750 is not set
 +# CONFIG_ATH79_MACH_ESR900 is not set
 +# CONFIG_ATH79_MACH_EW_DORIN is not set
++# CONFIG_ATH79_MACH_F9K1115V2 is not set
 +# CONFIG_ATH79_MACH_GL_INET is not set
 +# CONFIG_ATH79_MACH_GS_OOLITE is not set
 +# CONFIG_ATH79_MACH_HIWIFI_HC6361 is not set
 +# CONFIG_ATH79_MACH_HORNET_UB is not set
 +# CONFIG_ATH79_MACH_JA76PF is not set
 +# CONFIG_ATH79_MACH_JWAP003 is not set
++# CONFIG_ATH79_MACH_MC_MAC1200R is not set
++# CONFIG_ATH79_MACH_MR12 is not set
++# CONFIG_ATH79_MACH_MR16 is not set
 +# CONFIG_ATH79_MACH_MR600 is not set
++# CONFIG_ATH79_MACH_MR900 is not set
 +# CONFIG_ATH79_MACH_MYNET_N600 is not set
 +# CONFIG_ATH79_MACH_MYNET_N750 is not set
 +# CONFIG_ATH79_MACH_MYNET_REXT is not set
@@ -398,13 +441,17 @@ Index: target/linux/ar71xx/config-3.10
 +# CONFIG_ATH79_MACH_NBG6716 is not set
 +# CONFIG_ATH79_MACH_OM2P is not set
 +# CONFIG_ATH79_MACH_OM5P is not set
++# CONFIG_ATH79_MACH_ONION_OMEGA is not set
 +# CONFIG_ATH79_MACH_PB42 is not set
 +# CONFIG_ATH79_MACH_PB44 is not set
 +# CONFIG_ATH79_MACH_PB92 is not set
++# CONFIG_ATH79_MACH_QIHOO_C301 is not set
++# CONFIG_ATH79_MACH_R6100 is not set
  # CONFIG_ATH79_MACH_RB2011 is not set
  # CONFIG_ATH79_MACH_RB4XX is not set
  # CONFIG_ATH79_MACH_RB750 is not set
- # CONFIG_ATH79_MACH_RB91X is not set
+@@ -101,66 +101,69 @@ CONFIG_ATH79_MACH_R6100=y
+ # CONFIG_ATH79_MACH_RB922 is not set
  # CONFIG_ATH79_MACH_RB95X is not set
  # CONFIG_ATH79_MACH_RBSXTLITE is not set
 -CONFIG_ATH79_MACH_RW2458N=y
@@ -418,6 +465,7 @@ Index: target/linux/ar71xx/config-3.10
 -CONFIG_ATH79_MACH_TL_MR3020=y
 -CONFIG_ATH79_MACH_TL_MR3X20=y
 -CONFIG_ATH79_MACH_TL_WA701ND_V2=y
+-CONFIG_ATH79_MACH_TL_WA7210N_V2=y
 -CONFIG_ATH79_MACH_TL_WA830RE_V2=y
 -CONFIG_ATH79_MACH_TL_WA901ND=y
 -CONFIG_ATH79_MACH_TL_WA901ND_V2=y
@@ -447,11 +495,16 @@ Index: target/linux/ar71xx/config-3.10
 -CONFIG_ATH79_MACH_WNDR4300=y
 -CONFIG_ATH79_MACH_WNR2000=y
 -CONFIG_ATH79_MACH_WNR2000_V3=y
+-CONFIG_ATH79_MACH_WNR2000_V4=y
 -CONFIG_ATH79_MACH_WNR2200=y
 -CONFIG_ATH79_MACH_WP543=y
 -CONFIG_ATH79_MACH_WPE72=y
+-CONFIG_ATH79_MACH_WPJ344=y
+-CONFIG_ATH79_MACH_WPJ531=y
+-CONFIG_ATH79_MACH_WPJ558=y
 -CONFIG_ATH79_MACH_WRT160NL=y
 -CONFIG_ATH79_MACH_WRT400N=y
+-CONFIG_ATH79_MACH_WZR_450HP2=y
 -CONFIG_ATH79_MACH_WZR_HP_AG300H=y
 -CONFIG_ATH79_MACH_WZR_HP_G300NH=y
 -CONFIG_ATH79_MACH_WZR_HP_G300NH2=y
@@ -470,6 +523,7 @@ Index: target/linux/ar71xx/config-3.10
 +# CONFIG_ATH79_MACH_TL_MR3020 is not set
 +# CONFIG_ATH79_MACH_TL_MR3X20 is not set
 +# CONFIG_ATH79_MACH_TL_WA701ND_V2 is not set
++# CONFIG_ATH79_MACH_TL_WA7210N_V2 is not set
 +# CONFIG_ATH79_MACH_TL_WA830RE_V2 is not set
 +# CONFIG_ATH79_MACH_TL_WA901ND is not set
 +# CONFIG_ATH79_MACH_TL_WA901ND_V2 is not set
@@ -491,6 +545,7 @@ Index: target/linux/ar71xx/config-3.10
 +# CONFIG_ATH79_MACH_TUBE2H is not set
 +# CONFIG_ATH79_MACH_UBNT is not set
 +# CONFIG_ATH79_MACH_UBNT_XM is not set
++CONFIG_ATH79_MACH_UNWONE=y
 +# CONFIG_ATH79_MACH_WHR_HP_G300N is not set
 +# CONFIG_ATH79_MACH_WLAE_AG300N is not set
 +# CONFIG_ATH79_MACH_WLR8100 is not set
@@ -499,11 +554,16 @@ Index: target/linux/ar71xx/config-3.10
 +# CONFIG_ATH79_MACH_WNDR4300 is not set
 +# CONFIG_ATH79_MACH_WNR2000 is not set
 +# CONFIG_ATH79_MACH_WNR2000_V3 is not set
++# CONFIG_ATH79_MACH_WNR2000_V4 is not set
 +# CONFIG_ATH79_MACH_WNR2200 is not set
 +# CONFIG_ATH79_MACH_WP543 is not set
 +# CONFIG_ATH79_MACH_WPE72 is not set
++# CONFIG_ATH79_MACH_WPJ344 is not set
++# CONFIG_ATH79_MACH_WPJ531 is not set
++# CONFIG_ATH79_MACH_WPJ558 is not set
 +# CONFIG_ATH79_MACH_WRT160NL is not set
 +# CONFIG_ATH79_MACH_WRT400N is not set
++# CONFIG_ATH79_MACH_WZR_450HP2 is not set
 +# CONFIG_ATH79_MACH_WZR_HP_AG300H is not set
 +# CONFIG_ATH79_MACH_WZR_HP_G300NH is not set
 +# CONFIG_ATH79_MACH_WZR_HP_G300NH2 is not set
@@ -513,11 +573,15 @@ Index: target/linux/ar71xx/config-3.10
 +# CONFIG_ATH79_PCI_ATH9K_FIXUP is not set
  # CONFIG_ATH79_ROUTERBOOT is not set
  CONFIG_ATH79_WDT=y
++# CONFIG_BACKLIGHT_CLASS_DEVICE is not set
++CONFIG_BACKLIGHT_LCD_SUPPORT=y
  CONFIG_CC_OPTIMIZE_FOR_SIZE=y
-@@ -149,10 +149,19 @@
- CONFIG_CPU_R4K_FPU=y
+ CONFIG_CEVT_R4K=y
+ CONFIG_CLKDEV_LOOKUP=y
+@@ -181,10 +184,19 @@ CONFIG_CPU_R4K_FPU=y
  CONFIG_CPU_SUPPORTS_32BIT_KERNEL=y
  CONFIG_CPU_SUPPORTS_HIGHMEM=y
+ CONFIG_CPU_SUPPORTS_MSA=y
 +CONFIG_CRC16=y
 +CONFIG_CRC7=y
 +CONFIG_CRC_ITU_T=y
@@ -534,10 +598,20 @@ Index: target/linux/ar71xx/config-3.10
  CONFIG_GENERIC_ATOMIC64=y
  CONFIG_GENERIC_CLOCKEVENTS=y
  CONFIG_GENERIC_CLOCKEVENTS_BUILD=y
-@@ -195,7 +204,9 @@
- CONFIG_HAVE_NET_DSA=y
+@@ -196,8 +208,7 @@ CONFIG_GENERIC_SMP_IDLE_THREAD=y
+ CONFIG_GPIOLIB=y
+ CONFIG_GPIO_DEVRES=y
+ # CONFIG_GPIO_LATCH is not set
+-CONFIG_GPIO_NXP_74HC153=y
+-CONFIG_GPIO_PCF857X=y
++# CONFIG_GPIO_NXP_74HC153 is not set
+ CONFIG_GPIO_SYSFS=y
+ CONFIG_HARDWARE_WATCHPOINTS=y
+ CONFIG_HAS_DMA=y
+@@ -233,7 +244,9 @@ CONFIG_HAVE_NET_DSA=y
  CONFIG_HAVE_OPROFILE=y
  CONFIG_HAVE_PERF_EVENTS=y
+ CONFIG_HAVE_SYSCALL_TRACEPOINTS=y
 -CONFIG_HW_HAS_PCI=y
 +CONFIG_HZ=1000
 +# CONFIG_HZ_100 is not set
@@ -545,24 +619,29 @@ Index: target/linux/ar71xx/config-3.10
  CONFIG_HZ_PERIODIC=y
  CONFIG_I2C=y
  CONFIG_I2C_ALGOBIT=y
-@@ -210,18 +221,23 @@
- CONFIG_IRQ_DOMAIN=y
+@@ -243,21 +256,24 @@ CONFIG_IMAGE_CMDLINE_HACK=y
+ CONFIG_INITRAMFS_ROOT_GID=0
+ CONFIG_INITRAMFS_ROOT_UID=0
+ CONFIG_INITRAMFS_SOURCE="../../root"
+-CONFIG_IP17XX_PHY=y
+ CONFIG_IRQ_CPU=y
+-CONFIG_IRQ_DOMAIN=y
  CONFIG_IRQ_FORCED_THREADING=y
  CONFIG_IRQ_WORK=y
 +CONFIG_JBD2=y
++# CONFIG_LCD_CLASS_DEVICE is not set
  CONFIG_LEDS_GPIO=y
 -# CONFIG_LEDS_WNDR3700_USB is not set
- # CONFIG_M25PXX_USE_FAST_READ is not set
- CONFIG_MARVELL_PHY=y
+-CONFIG_MARVELL_PHY=y
++# CONFIG_LEDS_REGULATOR is not set
  CONFIG_MDIO_BOARDINFO=y
+-CONFIG_MICREL_PHY=y
 +CONFIG_MEDIA_SUPPORT=y
- CONFIG_MICREL_PHY=y
  CONFIG_MIPS=y
-+CONFIG_MIPS_FPU_EMU=y
++CONFIG_MIPS_FPU_EMULATOR=y
  # CONFIG_MIPS_HUGE_TLB_SUPPORT is not set
  CONFIG_MIPS_L1_CACHE_SHIFT=5
  CONFIG_MIPS_MACHINE=y
- CONFIG_MIPS_MT_DISABLED=y
 +CONFIG_MMC=y
 +CONFIG_MMC_SPI=y
  CONFIG_MODULES_USE_ELF_REL=y
@@ -570,11 +649,10 @@ Index: target/linux/ar71xx/config-3.10
  CONFIG_MTD_CFI_ADV_OPTIONS=y
  CONFIG_MTD_CFI_GEOMETRY=y
  # CONFIG_MTD_CFI_I2 is not set
-@@ -240,24 +256,27 @@
- CONFIG_MTD_SPLIT_SQUASHFS_ROOT=y
+@@ -277,29 +293,45 @@ CONFIG_MTD_SPLIT_LZMA_FW=y
+ CONFIG_MTD_SPLIT_SEAMA_FW=y
  CONFIG_MTD_SPLIT_UIMAGE_FW=y
  CONFIG_MTD_TPLINK_PARTS=y
--CONFIG_MTD_WRT160NL_PARTS=y
 -CONFIG_MYLOADER=y
  CONFIG_NEED_DMA_MAP_STATE=y
  CONFIG_NEED_PER_CPU_KM=y
@@ -583,9 +661,21 @@ Index: target/linux/ar71xx/config-3.10
  CONFIG_NET_DSA_MV88E6063=y
  CONFIG_NET_DSA_TAG_TRAILER=y
 -CONFIG_NO_GENERIC_PCI_IOPORT_MAP=y
++# CONFIG_NET_VENDOR_ARC is not set
++# CONFIG_NET_VENDOR_BROADCOM is not set
++# CONFIG_NET_VENDOR_INTEL is not set
++# CONFIG_NET_VENDOR_MARVELL is not set
++# CONFIG_NET_VENDOR_MICREL is not set
++# CONFIG_NET_VENDOR_MICROCHIP is not set
++# CONFIG_NET_VENDOR_NATSEMI is not set
++# CONFIG_NET_VENDOR_QUALCOMM is not set
++# CONFIG_NET_VENDOR_SAMSUNG is not set
++# CONFIG_NET_VENDOR_SEEQ is not set
++# CONFIG_NET_VENDOR_SMSC is not set
++# CONFIG_NET_VENDOR_STMICRO is not set
++# CONFIG_NET_VENDOR_VIA is not set
 +CONFIG_NLS=y
-+CONFIG_NTFS_FS=y
-+CONFIG_NTFS_RW=y
+ # CONFIG_NO_IOPORT_MAP is not set
  CONFIG_PAGEFLAGS_EXTENDED=y
 -CONFIG_PCI=y
 -CONFIG_PCI_AR724X=y
@@ -596,18 +686,29 @@ Index: target/linux/ar71xx/config-3.10
  CONFIG_PHYLIB=y
 -# CONFIG_PREEMPT_RCU is not set
 -# CONFIG_RCU_STALL_COMMON is not set
+-CONFIG_RTL8306_PHY=y
+-CONFIG_RTL8366RB_PHY=y
+-CONFIG_RTL8366S_PHY=y
+-CONFIG_RTL8366_SMI=y
+-CONFIG_RTL8367_PHY=y
++CONFIG_POWER_SUPPLY=y
 +CONFIG_PREEMPT=y
 +CONFIG_PREEMPT_COUNT=y
 +# CONFIG_PREEMPT_NONE is not set
 +CONFIG_PREEMPT_RCU=y
 +CONFIG_PWM=y
++CONFIG_PWM_SYSFS=y
 +# CONFIG_RCU_BOOST is not set
 +CONFIG_RCU_CPU_STALL_VERBOSE=y
 +CONFIG_RCU_STALL_COMMON=y
- CONFIG_RTL8306_PHY=y
- CONFIG_RTL8366RB_PHY=y
- CONFIG_RTL8366S_PHY=y
-@@ -271,15 +290,23 @@
++CONFIG_REGULATOR=y
++# CONFIG_REGULATOR_DEBUG is not set
++# CONFIG_REGULATOR_PWM is not set
++# CONFIG_REGULATOR_USERSPACE_CONSUMER is not set
+ # CONFIG_SCSI_DMA is not set
+ CONFIG_SERIAL_8250_NR_UARTS=1
+ CONFIG_SERIAL_8250_RUNTIME_UARTS=1
+@@ -308,16 +340,24 @@ CONFIG_SERIAL_AR933X_CONSOLE=y
  CONFIG_SERIAL_AR933X_NR_UARTS=2
  # CONFIG_SLAB is not set
  CONFIG_SLUB=y
@@ -631,6 +732,7 @@ Index: target/linux/ar71xx/config-3.10
 +# CONFIG_SOC_AR934X is not set
 +# CONFIG_SOC_QCA953X is not set
 +# CONFIG_SOC_QCA955X is not set
+ # CONFIG_SOC_QCA956X is not set
 +CONFIG_SOUND=y
 +# CONFIG_SOUND_OSS_CORE is not set
  CONFIG_SPI=y
@@ -638,21 +740,15 @@ Index: target/linux/ar71xx/config-3.10
  CONFIG_SPI_ATH79=y
  CONFIG_SPI_BITBANG=y
  CONFIG_SPI_MASTER=y
-@@ -292,7 +319,21 @@
- CONFIG_SYS_SUPPORTS_ARBIT_HZ=y
+@@ -331,5 +371,17 @@ CONFIG_SYS_SUPPORTS_ARBIT_HZ=y
  CONFIG_SYS_SUPPORTS_BIG_ENDIAN=y
+ CONFIG_SYS_SUPPORTS_MIPS16=y
  CONFIG_TICK_CPU_ACCOUNTING=y
-+# CONFIG_TINY_PREEMPT_RCU is not set
-+# CONFIG_TINY_RCU is not set
 +CONFIG_TREE_PREEMPT_RCU=y
 +# CONFIG_TTPCI_EEPROM is not set
- CONFIG_UIDGID_CONVERTED=y
--CONFIG_USB_ARCH_HAS_XHCI=y
 +CONFIG_UNINLINE_SPIN_UNLOCK=y
 +CONFIG_USB=y
 +CONFIG_USB_ACM=y
-+# CONFIG_USB_ARCH_HAS_OHCI is not set
-+# CONFIG_USB_ARCH_HAS_XHCI is not set
 +CONFIG_USB_COMMON=y
 +CONFIG_USB_EHCI_ATH79=y
 +CONFIG_USB_EHCI_HCD=y
@@ -660,62 +756,40 @@ Index: target/linux/ar71xx/config-3.10
 +CONFIG_USB_MON=y
  CONFIG_USB_SUPPORT=y
 +CONFIG_VFAT_FS=y
++# CONFIG_WL_TI is not set
  CONFIG_ZONE_DMA_FLAG=0
 Index: target/linux/ar71xx/image/Makefile
 ===================================================================
 --- target/linux/ar71xx/image/Makefile
 +++ target/linux/ar71xx/image/Makefile
-@@ -249,6 +249,7 @@
- ap121_mtdlayout_2M=mtdparts=spi0.0:64k(u-boot)ro,1216k(rootfs),704k(kernel),64k(art)ro,1920k@0x10000(firmware)
- ap121_mtdlayout_4M=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,2752k(rootfs),896k(kernel),64k(nvram),64k(art)ro,3648k@0x50000(firmware)
- carambola2_mtdlayout_16M=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,16000k(firmware),64k(art)ro
-+unwone_mtdlayout_16M=mtdparts=spi0.0:128k(u-boot),64k(u-boot-env),16128k(firmware),64k(art)
- ap132_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,1408k(kernel),6400k(rootfs),64k(art),7808k@0x50000(firmware)
- ap135_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,14528k(rootfs),1472k(kernel),64k(art)ro,16000k@0x50000(firmware)
- ap136_mtdlayout=mtdparts=spi0.0:256k(u-boot)ro,64k(u-boot-env)ro,6336k(rootfs),1408k(kernel),64k(mib0),64k(art)ro,7744k@0x50000(firmware)
-@@ -1067,6 +1068,7 @@
- $(eval $(call SingleProfile,AthLzma,64k,AP121_2M,ap121-2M,AP121,ttyATH0,115200,$$(ap121_mtdlayout_2M),RKuImage))
- $(eval $(call SingleProfile,AthLzma,64k,AP121_4M,ap121-4M,AP121,ttyATH0,115200,$$(ap121_mtdlayout_4M),RKuImage))
- $(eval $(call SingleProfile,AthLzma,64k,CARAMBOLA2,carambola2,CARAMBOLA2,ttyATH0,115200,$$(carambola2_mtdlayout_16M),KRuImage,65536))
-+$(eval $(call SingleProfile,AthLzma,64k,UNWONE,unwone,UNWONE,ttyATH0,115200,$$(unwone_mtdlayout_16M),KRuImage,65536))
- $(eval $(call SingleProfile,AthLzma,64k,AP121MINI,ap121-mini,AP121-MINI,ttyATH0,115200,$$(ap121_mtdlayout_4M),RKuImage))
- $(eval $(call SingleProfile,AthLzma,64k,AP132,ap132,AP132,ttyS0,115200,$$(ap132_mtdlayout),KRuImage))
- $(eval $(call SingleProfile,AthLzma,64k,AP135,ap135-020,AP135-020,ttyS0,115200,$$(ap135_mtdlayout),RKuImage))
-Index: target/linux/ar71xx/patches-3.10/610-MIPS-ath79-openwrt-machines.patch
+@@ -136,6 +136,14 @@ define Device/carambola2
+ endef
+ TARGET_DEVICES += carambola2
+ 
++define Device/unwone
++  BOARDNAME = UNWONE
++  IMAGE_SIZE = 16000k
++  CONSOLE = ttyATH0,115200
++  MTDPARTS = spi0.0:128k(u-boot)ro,64k(u-boot-env)ro,16128k(firmware),64k(art)ro
++endef
++TARGET_DEVICES += unwone
++
+ define Device/wndr3700
+   BOARDNAME = WNDR3700
+   NETGEAR_KERNEL_MAGIC = 0x33373030
+Index: target/linux/ar71xx/patches-3.18/907-MIPS-ath79-add-UnwiredOne.patch
 ===================================================================
---- target/linux/ar71xx/patches-3.10/610-MIPS-ath79-openwrt-machines.patch
-+++ target/linux/ar71xx/patches-3.10/610-MIPS-ath79-openwrt-machines.patch
-@@ -1,6 +1,6 @@
- --- a/arch/mips/ath79/machtypes.h
- +++ b/arch/mips/ath79/machtypes.h
--@@ -16,22 +16,144 @@
-+@@ -16,22 +16,145 @@
-  
-  enum ath79_mach_type {
-  	ATH79_MACH_GENERIC = 0,
-@@ -24,6 +24,7 @@
- +	ATH79_MACH_BHU_BXU2000N2_A1,	/* BHU BXU2000n-2 A1 */
- +	ATH79_MACH_CAP4200AG,		/* Senao CAP4200AG */
- +	ATH79_MACH_CARAMBOLA2,		/* 8devices Carambola2 */
-++	ATH79_MACH_UNWONE,			/* Unwired Devices Unwired One board */
-  	ATH79_MACH_DB120,		/* Atheros DB120 reference board */
-  	ATH79_MACH_PB44,		/* Atheros PB44 reference board */
- +	ATH79_MACH_DIR_505_A1,		/* D-Link DIR-505 rev. A1 */
-@@ -972,7 +973,7 @@
-  
-  config ATH79_MACH_UBNT_XM
-  	bool "Ubiquiti Networks XM/UniFi boards"
--@@ -83,6 +810,65 @@ config ATH79_MACH_UBNT_XM
-+@@ -83,6 +810,75 @@ config ATH79_MACH_UBNT_XM
-  	  Say 'Y' here if you want your kernel to support the
-  	  Ubiquiti Networks XM (rev 1.0) board.
-  
-@@ -1025,6 +1026,16 @@
- +	select ATH79_DEV_USB
- +	select ATH79_DEV_WMAC
- +
+--- /dev/null
++++ target/linux/ar71xx/patches-3.18/907-MIPS-ath79-add-UnwiredOne.patch
+@@ -0,0 +1,39 @@
++--- a/arch/mips/ath79/Kconfig
+++++ b/arch/mips/ath79/Kconfig
++@@ -876,6 +876,16 @@ config ATH79_MACH_BSB
++ 	select ATH79_DEV_USB
++ 	select ATH79_DEV_WMAC
++ 
 ++config ATH79_MACH_UNWONE
-++	bool "Unwired Devices Unwired One board"
+++	bool "Unwired Devices Unwired One"
 ++	select SOC_AR933X
 ++	select ATH79_DEV_ETH
 ++	select ATH79_DEV_GPIO_BUTTONS
@@ -724,39 +798,26 @@ Index: target/linux/ar71xx/patches-3.10/610-MIPS-ath79-openwrt-machines.patch
 ++	select ATH79_DEV_USB
 ++	select ATH79_DEV_WMAC
 ++
- +config ATH79_MACH_BHU_BXU2000N2_A
- +	bool "BHU BXU2000n-2 rev. A support"
- +	select SOC_AR934X
-@@ -1060,7 +1071,7 @@
-  endif
- --- a/arch/mips/ath79/Makefile
- +++ b/arch/mips/ath79/Makefile
--@@ -38,9 +38,90 @@ obj-$(CONFIG_ATH79_ROUTERBOOT)		+= route
-+@@ -38,9 +38,91 @@ obj-$(CONFIG_ATH79_ROUTERBOOT)		+= route
-  #
-  # Machines
-  #
-@@ -1151,6 +1162,7 @@
- +obj-$(CONFIG_ATH79_MACH_WZR_HP_G450H)	+= mach-wzr-hp-g450h.o
- +obj-$(CONFIG_ATH79_MACH_ZCN_1523H)	+= mach-zcn-1523h.o
- +obj-$(CONFIG_ATH79_MACH_CARAMBOLA2)	+= mach-carambola2.o
++ config ATH79_MACH_ARCHER_C7
++ 	bool "TP-LINK Archer C5/C7/TL-WDR4900 v2 board support"
++ 	select SOC_QCA955X
++--- a/arch/mips/ath79/Makefile
+++++ b/arch/mips/ath79/Makefile
++@@ -142,6 +142,7 @@ obj-$(CONFIG_ATH79_MACH_TL_WR720N_V3)	+=
++ obj-$(CONFIG_ATH79_MACH_TUBE2H)		+= mach-tube2h.o
++ obj-$(CONFIG_ATH79_MACH_UBNT)		+= mach-ubnt.o
++ obj-$(CONFIG_ATH79_MACH_UBNT_XM)	+= mach-ubnt-xm.o
 ++obj-$(CONFIG_ATH79_MACH_UNWONE)		+= mach-unwone.o
- --- a/arch/mips/ath79/prom.c
- +++ b/arch/mips/ath79/prom.c
- @@ -180,6 +180,12 @@ void __init prom_init(void)
-Index: target/linux/ar71xx/patches-3.10/709-MIPS-ath79-add-NBG6716.patch
-===================================================================
---- target/linux/ar71xx/patches-3.10/709-MIPS-ath79-add-NBG6716.patch
-+++ target/linux/ar71xx/patches-3.10/709-MIPS-ath79-add-NBG6716.patch
-@@ -1,9 +1,9 @@
- --- a/arch/mips/ath79/Makefile
- +++ b/arch/mips/ath79/Makefile
--@@ -130,3 +130,4 @@ obj-$(CONFIG_ATH79_MACH_WZR_HP_AG300H)	+
-- obj-$(CONFIG_ATH79_MACH_WZR_HP_G450H)	+= mach-wzr-hp-g450h.o
-+@@ -131,3 +131,4 @@ obj-$(CONFIG_ATH79_MACH_WZR_HP_AG300H)	+
-  obj-$(CONFIG_ATH79_MACH_ZCN_1523H)	+= mach-zcn-1523h.o
-  obj-$(CONFIG_ATH79_MACH_CARAMBOLA2)	+= mach-carambola2.o
-+ obj-$(CONFIG_ATH79_MACH_UNWONE)		+= mach-unwone.o
- +obj-$(CONFIG_ATH79_MACH_NBG6716)	+= mach-nbg6716.o
- --- a/arch/mips/ath79/machtypes.h
- +++ b/arch/mips/ath79/machtypes.h
++ obj-$(CONFIG_ATH79_MACH_WHR_HP_G300N)	+= mach-whr-hp-g300n.o
++ obj-$(CONFIG_ATH79_MACH_WLAE_AG300N)	+= mach-wlae-ag300n.o
++ obj-$(CONFIG_ATH79_MACH_WLR8100)	+= mach-wlr8100.o
++--- a/arch/mips/ath79/machtypes.h
+++++ b/arch/mips/ath79/machtypes.h
++@@ -186,6 +186,7 @@ enum ath79_mach_type {
++ 	ATH79_MACH_UBNT_UNIFI_OUTDOOR,	/* Ubiquiti UnifiAP Outdoor */
++ 	ATH79_MACH_UBNT_UNIFI_OUTDOOR_PLUS, /* Ubiquiti UnifiAP Outdoor+ */
++ 	ATH79_MACH_UBNT_XM,		/* Ubiquiti Networks XM board rev 1.0 */
+++	ATH79_MACH_UNWONE,		/* Unwired Devices Unwired One */
++ 	ATH79_MACH_WHR_G301N,		/* Buffalo WHR-G301N */
++ 	ATH79_MACH_WHR_HP_G300N,	/* Buffalo WHR-HP-G300N */
++ 	ATH79_MACH_WHR_HP_GN,		/* Buffalo WHR-HP-GN */

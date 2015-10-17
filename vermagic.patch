@@ -2,7 +2,7 @@ Index: config/Config-kernel.in
 =====================================
 --- config/Config-kernel.in
 +++ config/Config-kernel.in
-@@ -17,6 +17,12 @@
+@@ -17,6 +17,12 @@ config KERNEL_SWAP
  	bool "Support for paging of anonymous memory (swap)"
  	default y
  
@@ -13,13 +13,13 @@ Index: config/Config-kernel.in
 +	  Specify kernel vermagic. Leave it empty if you don't know what it is.
 +
  config KERNEL_DEBUG_FS
- 	bool "Compile the kernel with Debug FileSystem enabled"
+ 	bool "Compile the kernel with debug filesystem enabled"
  	default y
 Index: include/kernel-defaults.mk
 =====================================
 --- include/kernel-defaults.mk
 +++ include/kernel-defaults.mk
-@@ -113,7 +113,9 @@
+@@ -112,7 +112,9 @@
  	$(call Kernel/SetNoInitramfs)
  	rm -rf $(KERNEL_BUILD_DIR)/modules
  	$(_SINGLE) [ -d $(LINUX_DIR)/user_headers ] || $(MAKE) $(KERNEL_MAKEOPTS) INSTALL_HDR_PATH=$(LINUX_DIR)/user_headers headers_install
