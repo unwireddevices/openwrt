@@ -1,7 +1,7 @@
 # openwrt
 OpenWRT 15.05 "Chaos Calmer" patches for Unwired One board
 
-Patches were tested with OpenWRT 15.05 release 46767. To download it, use *svn co -r 46767 svn://svn.openwrt.org/openwrt/branches/chaos_calmer openwrt*
+Patches were tested with OpenWRT 15.05 release 47531. To download it, use *svn co -r 47531 svn://svn.openwrt.org/openwrt/branches/chaos_calmer openwrt*
 
 *patch -p0 &lt; unwired.patch* — adds Unwired One board to the list of targets. Run *touch target/linux/***/Makefile* after applying it.
 
