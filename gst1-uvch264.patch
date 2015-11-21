@@ -1,0 +1,55 @@
+--- package/system/udev/Makefile
++++ package/system/udev/Makefile
+@@ -27,7 +27,7 @@ define Package/udev
+   URL:=http://www.kernel.org/pub/linux/utils/kernel/hotplug/udev.html
+   MAINTAINER:=Geoff Levand <geoff@infradead.org>
+   MENU:=1
+-  DEPENDS:=+librt
++  DEPENDS:=+librt +glib2
+ endef
+ 
+ define Package/udev/description
+@@ -51,7 +51,7 @@ udev-args-$(CONFIG_UDEV_EXTRA_floppy) +=
+ # TODO: make hwdb and introspection work
+ 
+ CONFIGURE_ARGS += --prefix=/usr --exec-prefix= --sysconfdir=/etc \
+-	--disable-hwdb --disable-keymap --disable-gudev --disable-introspection \
++	--disable-hwdb --disable-keymap --disable-introspection \
+ 	--libexecdir=/lib/udev --disable-gtk-doc-html \
+ 	--sbindir=/sbin $(udev-args-y)
+ 
+@@ -105,12 +105,16 @@ udev-extra-rules-$(CONFIG_UDEV_EXTRA_v4l
+ define Build/InstallDev
+ 	$(INSTALL_DIR) $(1)/usr/include
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/include/libudev.h $(1)/usr/include
++	$(INSTALL_DIR) $(1)/usr/include/gudev-1.0/gudev
++	$(CP) $(PKG_INSTALL_DIR)/usr/include/gudev-1.0/gudev/gudev*.h $(1)/usr/include/gudev-1.0/gudev/
+ 	$(INSTALL_DIR) $(1)/usr/share/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/share/pkgconfig/udev.pc $(1)/usr/share/pkgconfig
+ 	$(INSTALL_DIR) $(1)/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/lib/libudev.so* $(1)/lib
++	$(CP) $(PKG_INSTALL_DIR)/lib/libgudev-1.0.so* $(1)/lib
+ 	$(INSTALL_DIR) $(1)/usr/lib/pkgconfig
+ 	$(CP) $(PKG_INSTALL_DIR)/lib/pkgconfig/libudev.pc $(1)/usr/lib/pkgconfig
++	$(CP) $(PKG_INSTALL_DIR)/lib/pkgconfig/gudev-1.0.pc $(1)/usr/lib/pkgconfig
+ endef
+ 
+ define Package/udev/install
+@@ -138,6 +142,7 @@ define Package/udev/install
+ 
+ 	$(INSTALL_DIR) $(1)/lib
+ 	$(CP) $(PKG_INSTALL_DIR)/lib/libudev.so* $(1)/lib
++	$(CP) $(PKG_INSTALL_DIR)/lib/libgudev-1.0.so* $(1)/lib
+ 
+ 	$(INSTALL_DIR) $(1)/lib/udev
+ ifneq ($(udev-extra-lib-bin-y),)
+--- package/feeds/packages/gst1-plugins-bad/Makefile
++++ package/feeds/packages/gst1-plugins-bad/Makefile
+@@ -269,6 +269,7 @@ $(eval $(call GstBuildPlugin,siren,siren
+ $(eval $(call GstBuildPlugin,speed,speed support,audio,,))
+ $(eval $(call GstBuildPlugin,subenc,subenc support,controller,,))
+ #$(eval $(call GstBuildPlugin,srtp,srtp support,rtp,,+libsrtp))
++$(eval $(call GstBuildPlugin,uvch264,h264 support,app basecamerabinsrc video,,+udev +libusb-1.0))
+ 
+ $(eval $(call BuildPackage,gstreamer1-plugins-bad))
+ $(eval $(call BuildPackage,gst1-plugins-bad))
