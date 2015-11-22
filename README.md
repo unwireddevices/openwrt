@@ -1,26 +1,38 @@
 # openwrt
 OpenWRT 15.05 "Chaos Calmer" patches for Unwired One board
 
-Patches were tested with OpenWRT 15.05 release 47531. To download it, use *svn co -r 47531 svn://svn.openwrt.org/openwrt/branches/chaos_calmer openwrt*
+Patches were tested with OpenWRT 15.05 release 47580. To download it, use *svn co -r 47580 svn://svn.openwrt.org/openwrt/branches/chaos_calmer chaos*
+
+Run *cd chaos && ./scripts/feeds update -a && ./scripts/feeds install -a* after downloading.
 
 *patch -p0 &lt; unwired.patch* — adds Unwired One board to the list of targets. Run *touch target/linux/***/Makefile* after applying it.
 
+*patch -p0 &lt; avrdude.patch* — adds AVRDude package
+
+*patch -p0 &lt; compile-fixes.patch* — fixes for various building errors
+
 *patch -p0 &lt; gpio-irq-support.patch* — GPIO IRQ support by GBert, https://github.com/GBert
 
-*patch -p0 &lt; new_modules.patch* — kernel modules developed by Unwired Devices team
-
-*patch -p0 &lt; new_files.patch* — avahi-daemon and uboot-envtools configuration files
+*patch -p0 &lt; gst1-uvch264.patch* — enable H.264 support in GStreamer (and enable gudev in udev package, as it is required by uvch264)
 
 *patch -p0 &lt; mjpg-enable.patch* — enable mjpg_streamer service by default
 
 *patch -p0 &lt; mjpg-nohotplug.patch* — disable mjpg_streamer in /etc/hotplug.d/usb/ (not included in stock firmware)
 
-*patch -p0 &lt; console.patch* — patch to allow to completely disable UART console using bootloader's environment variable. Must be re-applied after *make clean* and must be preceeded with *make kernel_menuconfig*
+*patch -p0 &lt; new_files.patch* — avahi-daemon and uboot-envtools configuration files
 
-*patch -p0 &lt; opkg.patch* — add Unwired's OpenWRT repository (http://files.black-swift.com/files/openwrt/ccalmer/1.0/packages/) to /etc/opkg.conf
+*patch -p0 &lt; new_modules.patch* — kernel modules developed by Unwired Devices team
+
+*patch -p0 &lt; console.patch* — allows to completely disable UART console using bootloader's environment variable
+
+*patch -p0 &lt; opkg.patch* — add Unwired's OpenWRT repository (http://files.unwds.com/files/openwrt/ccalmer/1.0/packages/) to /etc/opkg.conf
 
 *patch -p0 &lt; vermagic.patch* — set vermagic number with menuconfig instead of automatically generated md5 hash of the kernel config file
 
 *.config* — ready to use OpenWRT Buildroot configuration file. Copy it to ~/openwrt folder.
+
+To apply all patches with a single command, put patches you need in some directory and run *for i in $(ls /that/directory/***.patch); do patch -p0 < $i; done*
+
+After patching, run *make defconfig* and then *make V=s* to build firmware.
 
 For more details, please visit http://www.unwireddevices.com/wiki
