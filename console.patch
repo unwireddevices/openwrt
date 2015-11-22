@@ -1,203 +1,206 @@
-Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/arch/mips/ath79/prom.c
-===================================================================
---- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/arch/mips/ath79/prom.c
-+++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/arch/mips/ath79/prom.c
-@@ -73,7 +73,7 @@
- #ifdef CONFIG_IMAGE_CMDLINE_HACK
- extern char __image_cmdline[];
- 
--static int __init ath79_use_image_cmdline(void)
-+static int __init ath79_use_image_cmdline(int argc, char **argv)
- {
- 	char *p = __image_cmdline;
- 	int replace = 0;
-@@ -86,20 +86,91 @@
- 	if (*p == '\0')
- 		return 0;
- 
--	if (replace) {
-+	if (replace)
-+	{
- 		strlcpy(arcs_cmdline, p, sizeof(arcs_cmdline));
--	} else {
--		strlcat(arcs_cmdline, " ", sizeof(arcs_cmdline));
--		strlcat(arcs_cmdline, p, sizeof(arcs_cmdline));
-+	}
-+	else
-+	{
-+//		strlcat(arcs_cmdline, " ", sizeof(arcs_cmdline));
-+//		strlcat(arcs_cmdline, p, sizeof(arcs_cmdline));
-+		if(*arcs_cmdline)
-+		{	//	not empty already
-+			strlcat(arcs_cmdline, " ", sizeof(arcs_cmdline));
-+		}
+--- /dev/null	2015-11-21 19:07:45.507000000 +0300
++++ target/linux/ar71xx/patches-3.18/105-MIPS-ath79-console-disable.patch
+@@ -0,0 +1,203 @@
++Index: a/arch/mips/ath79/prom.c
++===================================================================
++--- a/arch/mips/ath79/prom.c
+++++ b/arch/mips/ath79/prom.c
++@@ -73,7 +73,7 @@
++ #ifdef CONFIG_IMAGE_CMDLINE_HACK
++ extern char __image_cmdline[];
++ 
++-static int __init ath79_use_image_cmdline(void)
+++static int __init ath79_use_image_cmdline(int argc, char **argv)
++ {
++ 	char *p = __image_cmdline;
++ 	int replace = 0;
++@@ -86,20 +86,91 @@
++ 	if (*p == '\0')
++ 		return 0;
++ 
++-	if (replace) {
+++	if (replace)
+++	{
++ 		strlcpy(arcs_cmdline, p, sizeof(arcs_cmdline));
++-	} else {
++-		strlcat(arcs_cmdline, " ", sizeof(arcs_cmdline));
++-		strlcat(arcs_cmdline, p, sizeof(arcs_cmdline));
+++	}
+++	else
+++	{
+++//		strlcat(arcs_cmdline, " ", sizeof(arcs_cmdline));
+++//		strlcat(arcs_cmdline, p, sizeof(arcs_cmdline));
+++		if(*arcs_cmdline)
+++		{	//	not empty already
+++			strlcat(arcs_cmdline, " ", sizeof(arcs_cmdline));
+++		}
+++
+++		if(argc > 0)
+++		{
+++			char* name=NULL;
+++			int name_len=0;
+++			char* value=NULL;
+++			int value_len=0;
+++			char* next=p;
+++
+++			while(*next)
+++			{
+++				while(*next && (*next == ' ')) ++next;	//	skip whitespace
+++
+++				if(*next)
+++				{
+++					name=next++;
+++
+++					while(*next && (*next != '=')) ++next;
+++
+++					if(*next)
+++					{
+++						int i=0;
+++						int replaced=0;
+++
+++						name_len=next-name;
+++						value=++next;	// skip '='
+++
+++						while(*next && (*next != ' ')) ++next;
+++
+++						value_len=next++-value;
+++
+++						//	try to find 'name' in bootargs
+++						for (i = 0; i < argc; i++)
+++						{
+++							if(is_valid_ram_addr(argv[i]))
+++							{
+++								if(strncmp(name, argv[i], name_len+1) == 0)
+++								{
+++									strlcat(arcs_cmdline, argv[i], sizeof(arcs_cmdline));
+++									replaced=1;
+++									break;
+++								}
+++							}
+++						}
+++
+++						if(!replaced)
+++						{
+++							strncat(arcs_cmdline, name, name_len+1+value_len);
+++						}
+++
+++						strlcat(arcs_cmdline, " ", sizeof(arcs_cmdline));
+++					}
+++					else
+++					{
+++						strlcat(arcs_cmdline, name, sizeof(arcs_cmdline));
+++						break;
+++					}
+++				}
+++			}
+++		}
+++		else
+++		{
+++			strlcat(arcs_cmdline, p, sizeof(arcs_cmdline));
+++		}
++ 	}
++ 
++ 	return 1;
++ }
++ #else
++-static inline int ath79_use_image_cmdline(void) { return 0; }
+++static inline int ath79_use_image_cmdline(int argc, char **argv) { return 0; }
++ #endif
++ 
++-static int __init ath79_prom_init_myloader(void)
+++static int __init ath79_prom_init_myloader(int argc, char **argv)
++ {
++ 	struct myloader_info *mylo;
++ 	char mac_buf[32];
++@@ -127,7 +198,7 @@
++ 
++ 	ath79_prom_append_cmdline("ethaddr", mac_buf);
++ 
++-	ath79_use_image_cmdline();
+++	ath79_use_image_cmdline(argc, argv);
++ 
++ 	return 1;
++ }
++@@ -136,7 +207,7 @@
++ {
++ 	int i;
++ 
++-	if (ath79_use_image_cmdline())
+++	if (ath79_use_image_cmdline(argc, argv))
++ 		return;
++ 
++ 	if (!is_valid_ram_addr(argv))
++@@ -154,7 +225,7 @@
++ 	const char *env;
++ 	char **envp;
++ 
++-	if (ath79_prom_init_myloader())
+++	if (ath79_prom_init_myloader(fw_arg0, (char **)fw_arg1))
++ 		return;
++ 
++ 	ath79_prom_init_cmdline(fw_arg0, (char **)fw_arg1);
++Index: a/arch/mips/kernel/setup.c
++===================================================================
++--- a/arch/mips/kernel/setup.c
+++++ b/arch/mips/kernel/setup.c
++@@ -764,7 +764,44 @@
++ 	prom_init();
++ 
++ #ifdef CONFIG_EARLY_PRINTK
++-	setup_early_printk();
+++	{
+++		int enable_console=1;
+++
+++		char* pos=strstr(arcs_cmdline, "console=");
+++		if(pos)
+++		{
+++			pos+=8;	// go to value
+++			if((*pos == ' ') || (*pos == '\0'))
+++			{
+++				// 'no value' means 'disabled'
+++				enable_console=0;
+++			}
+++			else
+++			{
+++				// we have some value, check length
+++				int i=1;
+++				for(; i < 4; ++i)
+++				{
+++					if(pos[i] == '\0')
+++					{
+++						break;
+++					}
+++				}
+++
+++				if((i == 4) &&
+++					((strncmp(pos,"null",4) == 0) ||
+++					(strncmp(pos,"NULL",4) == 0)))
+++				{
+++					enable_console=0;
+++				}
+++			}
+++		}
+++	
+++		if(enable_console)
+++		{
+++			setup_early_printk();
+++		}
+++	}
++ #endif
++ 	cpu_report();
++ 	check_bugs_early();
++Index: a/init/main.c
++===================================================================
++--- a/init/main.c
+++++ b/init/main.c
++@@ -550,8 +550,8 @@
++  */
++ 	boot_cpu_init();
++ 	page_address_init();
++-	pr_notice("%s", linux_banner);
++ 	setup_arch(&command_line);
+++	pr_notice("%s", linux_banner);
++ 	mm_init_cpumask(&init_mm);
++	mangle_bootargs(command_line);
++ 	setup_command_line(command_line);
 +
-+		if(argc > 0)
-+		{
-+			char* name=NULL;
-+			int name_len=0;
-+			char* value=NULL;
-+			int value_len=0;
-+			char* next=p;
-+
-+			while(*next)
-+			{
-+				while(*next && (*next == ' ')) ++next;	//	skip whitespace
-+
-+				if(*next)
-+				{
-+					name=next++;
-+
-+					while(*next && (*next != '=')) ++next;
-+
-+					if(*next)
-+					{
-+						int i=0;
-+						int replaced=0;
-+
-+						name_len=next-name;
-+						value=++next;	// skip '='
-+
-+						while(*next && (*next != ' ')) ++next;
-+
-+						value_len=next++-value;
-+
-+						//	try to find 'name' in bootargs
-+						for (i = 0; i < argc; i++)
-+						{
-+							if(is_valid_ram_addr(argv[i]))
-+							{
-+								if(strncmp(name, argv[i], name_len+1) == 0)
-+								{
-+									strlcat(arcs_cmdline, argv[i], sizeof(arcs_cmdline));
-+									replaced=1;
-+									break;
-+								}
-+							}
-+						}
-+
-+						if(!replaced)
-+						{
-+							strncat(arcs_cmdline, name, name_len+1+value_len);
-+						}
-+
-+						strlcat(arcs_cmdline, " ", sizeof(arcs_cmdline));
-+					}
-+					else
-+					{
-+						strlcat(arcs_cmdline, name, sizeof(arcs_cmdline));
-+						break;
-+					}
-+				}
-+			}
-+		}
-+		else
-+		{
-+			strlcat(arcs_cmdline, p, sizeof(arcs_cmdline));
-+		}
- 	}
- 
- 	return 1;
- }
- #else
--static inline int ath79_use_image_cmdline(void) { return 0; }
-+static inline int ath79_use_image_cmdline(int argc, char **argv) { return 0; }
- #endif
- 
--static int __init ath79_prom_init_myloader(void)
-+static int __init ath79_prom_init_myloader(int argc, char **argv)
- {
- 	struct myloader_info *mylo;
- 	char mac_buf[32];
-@@ -127,7 +198,7 @@
- 
- 	ath79_prom_append_cmdline("ethaddr", mac_buf);
- 
--	ath79_use_image_cmdline();
-+	ath79_use_image_cmdline(argc, argv);
- 
- 	return 1;
- }
-@@ -136,7 +207,7 @@
- {
- 	int i;
- 
--	if (ath79_use_image_cmdline())
-+	if (ath79_use_image_cmdline(argc, argv))
- 		return;
- 
- 	if (!is_valid_ram_addr(argv))
-@@ -154,7 +225,7 @@
- 	const char *env;
- 	char **envp;
- 
--	if (ath79_prom_init_myloader())
-+	if (ath79_prom_init_myloader(fw_arg0, (char **)fw_arg1))
- 		return;
- 
- 	ath79_prom_init_cmdline(fw_arg0, (char **)fw_arg1);
-Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/arch/mips/kernel/setup.c
-===================================================================
---- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/arch/mips/kernel/setup.c
-+++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/arch/mips/kernel/setup.c
-@@ -764,7 +764,44 @@
- 	prom_init();
- 
- #ifdef CONFIG_EARLY_PRINTK
--	setup_early_printk();
-+	{
-+		int enable_console=1;
-+
-+		char* pos=strstr(arcs_cmdline, "console=");
-+		if(pos)
-+		{
-+			pos+=8;	// go to value
-+			if((*pos == ' ') || (*pos == '\0'))
-+			{
-+				// 'no value' means 'disabled'
-+				enable_console=0;
-+			}
-+			else
-+			{
-+				// we have some value, check length
-+				int i=1;
-+				for(; i < 4; ++i)
-+				{
-+					if(pos[i] == '\0')
-+					{
-+						break;
-+					}
-+				}
-+
-+				if((i == 4) &&
-+					((strncmp(pos,"null",4) == 0) ||
-+					(strncmp(pos,"NULL",4) == 0)))
-+				{
-+					enable_console=0;
-+				}
-+			}
-+		}
-+	
-+		if(enable_console)
-+		{
-+			setup_early_printk();
-+		}
-+	}
- #endif
- 	cpu_report();
- 	check_bugs_early();
-Index: build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/init/main.c
-===================================================================
---- build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/init/main.c
-+++ build_dir/target-mips_34kc_uClibc-0.9.33.2/linux-ar71xx_generic/linux-3.18.23/init/main.c
-@@ -550,8 +550,8 @@
-  */
- 	boot_cpu_init();
- 	page_address_init();
--	pr_notice("%s", linux_banner);
- 	setup_arch(&command_line);
-+	pr_notice("%s", linux_banner);
- 	mm_init_cpumask(&init_mm);
-	mangle_bootargs(command_line);
- 	setup_command_line(command_line);
-
