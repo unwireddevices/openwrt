@@ -1,0 +1,673 @@
+--- /dev/null
++++ package/utils/avrdude/Makefile
+@@ -0,0 +1,65 @@
++#
++# Copyright (C) 2008 OpenWrt.org
++#
++# This is free software, licensed under the GNU General Public License v2.
++# See /LICENSE for more information.
++#
++
++include $(TOPDIR)/rules.mk
++
++PKG_NAME:=avrdude
++PKG_VERSION:=6.1
++PKG_RELEASE:=1
++
++PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
++PKG_SOURCE_URL:=http://download.savannah.gnu.org/releases/avrdude
++PKG_MD5SUM:=9db8c25b935d34234b9b1ba16ad55fd5
++
++PKG_FIXUP:=autoreconf
++
++include $(INCLUDE_DIR)/package.mk
++
++define Package/avrdude
++  SECTION:=utils
++  CATEGORY:=Utilities
++  TITLE:=AVR Downloader/UploaDEr
++  URL:=http://www.bsdhome.com/avrdude/
++  DEPENDS:=+libncurses +libreadline +libusb-compat +libftdi
++endef
++
++define Package/avrdude/description
++ AVRDUDE is a full featured program for programming Atmel's AVR CPU's.
++endef
++
++define Build/Prepare
++	$(call Build/Prepare/Default)
++	chmod -R u+w $(PKG_BUILD_DIR)
++endef
++
++CONFIGURE_ARGS+= \
++	--disable-doc \
++	--disable-parport \
++	--enable-linuxgpio \
++
++CONFIGURE_VARS += \
++	ac_cv_lib_elf_elf_begin=no \
++
++define Build/Compile
++	$(MAKE) -C $(PKG_BUILD_DIR) \
++		DESTDIR="$(PKG_INSTALL_DIR)" \
++		install-exec
++endef
++
++define Package/avrdude/conffiles
++/etc/avrdude.conf
++endef
++
++define Package/avrdude/install
++	$(INSTALL_DIR) $(1)/etc
++	$(INSTALL_CONF) $(PKG_INSTALL_DIR)/etc/avrdude.conf $(1)/etc/
++	$(INSTALL_DIR) $(1)/usr/bin
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/avrdude $(1)/usr/bin/
++endef
++
++$(eval $(call BuildPackage,avrdude))
++
+--- /dev/null
++++ package/utils/avrdude/patches/010-flip_stdint_fix.patch
+@@ -0,0 +1,32 @@
++Index: avrdude-6.1/flip1.c
++===================================================================
++--- avrdude-6.1.orig/flip1.c
+++++ avrdude-6.1/flip1.c
++@@ -30,11 +30,7 @@
++ #include <limits.h>
++ #include <unistd.h>
++ 
++-#if HAVE_STDINT_H
++ #include <stdint.h>
++-#elif HAVE_INTTYPES_H
++-#include <inttypes.h>
++-#endif
++ 
++ #include "flip1.h"
++ #include "dfu.h"
++Index: avrdude-6.1/flip2.c
++===================================================================
++--- avrdude-6.1.orig/flip2.c
+++++ avrdude-6.1/flip2.c
++@@ -27,11 +27,7 @@
++ #include <limits.h>
++ #include <unistd.h>
++ 
++-#if HAVE_STDINT_H
++ #include <stdint.h>
++-#elif HAVE_INTTYPES_H
++-#include <inttypes.h>
++-#endif
++ 
++ #include "flip2.h"
++ #include "dfu.h"
+--- /dev/null
++++ package/utils/avrdude/patches/020-linuxspi.patch
+@@ -0,0 +1,567 @@
++Index: avrdude-6.1/Makefile.am
++===================================================================
++--- avrdude-6.1.orig/Makefile.am
+++++ avrdude-6.1/Makefile.am
++@@ -136,6 +136,8 @@ libavrdude_a_SOURCES = \
++ 	jtag3_private.h \
++ 	linuxgpio.c \
++ 	linuxgpio.h \
+++	linuxspi.c \
+++	linuxspi.h \
++ 	linux_ppdev.h \
++ 	lists.c \
++ 	lists.h \
++Index: avrdude-6.1/avrdude.conf.in
++===================================================================
++--- avrdude-6.1.orig/avrdude.conf.in
+++++ avrdude-6.1/avrdude.conf.in
++@@ -1312,15 +1312,27 @@ programmer
++ #use -c?type on the command line and look for linuxgpio in the list. If it's not available
++ #you need pass the --enable-linuxgpio=yes option to configure and recompile avrdude.
++ #
++-#programmer
++-#  id    = "linuxgpio";
++-#  desc  = "Use the Linux sysfs interface to bitbang GPIO lines";
++-#  type  = "linuxgpio";
++-#  reset = ?;
++-#  sck   = ?;
++-#  mosi  = ?;
++-#  miso  = ?;
++-#;
+++programmer
+++  id    = "linuxgpio";
+++  desc  = "Use the Linux sysfs interface to bitbang GPIO lines";
+++  type  = "linuxgpio";
+++  reset = 18;
+++  sck   = 19;
+++  mosi  = 20;
+++  miso  = 22;
+++;
+++
+++#This programmer uses the built in linux SPI bus devices to program an
+++#attached AVR. A GPIO accessed through the sysfs GPIO interface needs to
+++#be specified for a reset pin since the linux SPI userspace functions do
+++#not allow for control over the slave select/chip select signal.
+++#
+++programmer
+++  id = "linuxspi";
+++  desc = "Use Linux SPI device in /dev/spidev*";
+++  type = "linuxspi";
+++  reset = 25;
+++;
++ 
++ # some ultra cheap programmers use bitbanging on the 
++ # serialport.
++Index: avrdude-6.1/configure.ac
++===================================================================
++--- avrdude-6.1.orig/configure.ac
+++++ avrdude-6.1/configure.ac
++@@ -187,6 +187,12 @@ AC_CHECK_HEADERS([fcntl.h sys/ioctl.h sy
++ AC_CHECK_HEADERS([ddk/hidsdi.h],,,[#include <windows.h>
++ #include <setupapi.h>])
++ 
+++AH_TEMPLATE([HAVE_SPIDEV],
+++            [Define if spidev support is enabled for linux])
+++AC_CHECK_HEADERS([linux/spi/spidev.h], [have_spidev=yes])
+++if test x$have_spidev == xyes; then
+++    AC_DEFINE([HAVE_SPIDEV])
+++fi
++ 
++ # Checks for typedefs, structures, and compiler characteristics.
++ AC_C_CONST
++@@ -543,3 +549,9 @@ else
++    echo "DISABLED   linuxgpio"
++ fi
++ 
+++if test x$have_spidev = xyes; then
+++   echo "ENABLED    linuxspi"
+++else
+++   echo "DISABLED   linnuxspi"
+++fi
+++
++Index: avrdude-6.1/doc/avrdude.texi
++===================================================================
++--- avrdude-6.1.orig/doc/avrdude.texi
+++++ avrdude-6.1/doc/avrdude.texi
++@@ -180,6 +180,23 @@ some resistors in series or better yet u
++ the 74HC244. Have a look at http://kolev.info/avrdude-linuxgpio for a more
++ detailed tutorial about using this programmer type.
++ 
+++Under a Linux installation with direct access to the SPI bus and GPIO
+++pins, such as would be found on a Raspberry Pi, the linuxspi programmer
+++type can be used to directly connect to and program a chip using the
+++built in interfaces on the computer. The requirements to use this type
+++are that an SPI interface is exposed along with one GPIO pin. The GPIO
+++serves as the reset output since the Linux SPI drivers do not hold slave
+++select down when a transfer is not occuring and thus it cannot be used
+++as the reset pin. A readily available level translator should be used
+++between the SPI bus/reset GPIO and the chip to avoid potentially damaging
+++the computer's SPI controller in the event that the chip is running at
+++5V and the SPI runs at 3.3V. The GPIO chosen for reset can be configured
+++in the avrdude configuration file using the 'reset' entry under the
+++linuxspi programmer. By default, this programmer is commented out in the
+++avrdude configuration file due to the lack of a reliable way to determine
+++if GPIOs are available. To use this, uncomment the applicable lines and
+++set the reset GPIO number accordingly.
+++
++ The STK500, JTAG ICE, avr910, and avr109/butterfly use the serial port to communicate with the PC.
++ The STK600, JTAG ICE mkII/3, AVRISP mkII, USBasp, avrftdi (and derivitives), and USBtinyISP
++ programmers communicate through the USB, using @code{libusb} as a
++Index: avrdude-6.1/linuxspi.c
++===================================================================
++--- /dev/null
+++++ avrdude-6.1/linuxspi.c
++@@ -0,0 +1,391 @@
+++/*
+++ * avrdude - A Downloader/Uploader for AVR device programmers
+++ * Support for using spidev userspace drivers to communicate directly over SPI
+++ * 
+++ * Copyright (C) 2013 Kevin Cuzner <kevin@kevincuzner.com>
+++ *
+++ * This program is free software; you can redistribute it and/or modify
+++ * it under the terms of the GNU General Public License as published by
+++ * the Free Software Foundation; either version 2 of the License, or
+++ * (at your option) any later version.
+++ *
+++ * This program is distributed in the hope that it will be useful,
+++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+++ * GNU General Public License for more details.
+++ *
+++ * You should have received a copy of the GNU General Public License
+++ * along with this program; if not, write to the Free Software
+++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+++ * 
+++ * Support for inversion of reset pin, Tim Chilton 02/05/2014
+++ */
+++ 
+++#include "linuxspi.h"
+++
+++#include "ac_cfg.h"
+++
+++#include "avrdude.h"
+++#include "avr.h"
+++#include "pindefs.h"
+++
+++#if HAVE_SPIDEV
+++
+++/**
+++ * Linux Kernel SPI Drivers
+++ * 
+++ * Copyright (C) 2006 SWAPP
+++ *      Andrea Paterniani <a.paterniani@swapp-eng.it>
+++ * Copyright (C) 2007 David Brownell (simplification, cleanup)
+++ * 
+++ * This program is free software; you can redistribute it and/or modify
+++ * it under the terms of the GNU General Public License as published by
+++ * the Free Software Foundation; either version 2 of the License, or
+++ * (at your option) any later version.
+++ */
+++
+++#include <fcntl.h>
+++#include <unistd.h>
+++#include <sys/ioctl.h>
+++#include <linux/types.h>
+++#include <linux/spi/spidev.h>
+++
+++#include <stddef.h>
+++#include <stdio.h>
+++#include <stdlib.h>
+++#include <string.h>
+++#include <math.h>
+++
+++/**
+++ * Data for the programmer
+++ */
+++
+++struct pdata
+++{
+++    unsigned int speedHz;
+++};
+++
+++typedef enum {
+++    LINUXSPI_GPIO_DIRECTION,
+++    LINUXSPI_GPIO_VALUE,
+++    LINUXSPI_GPIO_EXPORT,
+++    LINUXSPI_GPIO_UNEXPORT
+++} LINUXSPI_GPIO_OP;
+++
+++#define PDATA(pgm) ((struct pdata *)(pgm->cookie))
+++#define IMPORT_PDATA(pgm) struct pdata *pdata = PDATA(pgm)
+++
+++/**
+++ * Function Prototypes
+++ */
+++
+++//linuxspi specific functions
+++static int linuxspi_spi_duplex(PROGRAMMER* pgm, unsigned char* tx, unsigned char* rx, int len);
+++static int linuxspi_gpio_op_wr(PROGRAMMER* pgm, LINUXSPI_GPIO_OP op, int gpio, char* val);
+++//interface - management
+++static void linuxspi_setup(PROGRAMMER* pgm);
+++static void linuxspi_teardown(PROGRAMMER* pgm);
+++//interface - prog
+++static int linuxspi_open(PROGRAMMER* pgm, char* port);
+++static void linuxspi_close(PROGRAMMER* pgm);
+++// dummy functions
+++static void linuxspi_disable(PROGRAMMER * pgm);
+++static void linuxspi_enable(PROGRAMMER * pgm);
+++static void linuxspi_display(PROGRAMMER * pgm, const char * p);
+++//universal
+++static int linuxspi_initialize(PROGRAMMER* pgm, AVRPART* p);
+++// SPI specific functions
+++static int linuxspi_cmd(PROGRAMMER * pgm, unsigned char cmd[4], unsigned char res[4]);
+++static int linuxspi_program_enable(PROGRAMMER * pgm, AVRPART * p);
+++static int linuxspi_chip_erase(PROGRAMMER * pgm, AVRPART * p);
+++
+++/**
+++ * @brief Sends/receives a message in full duplex mode
+++ * @return -1 on failure, otherwise number of bytes sent/recieved
+++ */
+++static int linuxspi_spi_duplex(PROGRAMMER* pgm, unsigned char* tx, unsigned char* rx, int len)
+++{
+++    int fd = open(pgm->port, O_RDWR);
+++    if (fd < 0)
+++    {
+++        fprintf(stderr, "\n%s: error: Unable to open SPI port %s", progname, pgm->port);
+++        return -1; //error
+++    }
+++    
+++    struct spi_ioc_transfer tr = {
+++        .tx_buf = (unsigned long)tx,
+++        .rx_buf = (unsigned long)rx,
+++        .len = len,
+++        .delay_usecs = 1,
+++        //should settle around 400Khz, a standard SPI speed. Adjust using baud parameter (-b)
+++        .speed_hz = pgm->baudrate == 0 ? 400000 : pgm->baudrate,
+++        .bits_per_word = 8,
+++    };
+++    
+++    int ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
+++    close(fd);
+++    
+++    if (ret != len)
+++    {
+++        fprintf(stderr, "\n%s: error: Unable to send SPI message\n", progname);
+++        return -1;
+++    }
+++    
+++    return ret;
+++}
+++
+++/**
+++ * @brief Performs an operation on a gpio. Writes to stderr if error.
+++ * @param op Operation to perform
+++ * @param gpio 
+++ * @return -1 if failed, 0 otherwise
+++ */
+++static int linuxspi_gpio_op_wr(PROGRAMMER* pgm, LINUXSPI_GPIO_OP op, int gpio, char* val)
+++{
+++    char* fn = malloc(PATH_MAX); //filename
+++    gpio &= ~PIN_INVERSE; // Remove the inversion flag
+++
+++    switch(op)
+++    {
+++        case LINUXSPI_GPIO_DIRECTION:
+++            sprintf(fn, "/sys/class/gpio/gpio%d/direction", gpio);
+++            break;
+++        case LINUXSPI_GPIO_EXPORT:
+++            sprintf(fn, "/sys/class/gpio/export");
+++            break;
+++        case LINUXSPI_GPIO_UNEXPORT:
+++            sprintf(fn, "/sys/class/gpio/unexport");
+++            break;
+++        case LINUXSPI_GPIO_VALUE:
+++            sprintf(fn, "/sys/class/gpio/gpio%d/value", gpio);
+++            break;
+++        default:
+++            fprintf(stderr, "%s: linuxspi_gpio_op_wr(): Unknown op %d", progname, op);
+++            return -1;
+++    }
+++    
+++    FILE* f = fopen(fn, "w");
+++    
+++    if (!f)
+++    {
+++        fprintf(stderr, "%s: linuxspi_gpio_op_wr(): Unable to open file %s", progname, fn);
+++        free(fn); //we no longer need the path
+++        return -1;
+++    }
+++    
+++    if (fprintf(f, val) < 0)
+++    {
+++        fprintf(stderr, "%s: linuxspi_gpio_op_wr(): Unable to write file %s with %s", progname, fn, val);
+++        free(fn); //we no longer need the path
+++        return -1;
+++    }
+++    
+++    fclose(f);
+++    free(fn); //we no longer need the path
+++    
+++    return 0;
+++}
+++
+++static void linuxspi_setup(PROGRAMMER* pgm)
+++{
+++    if ((pgm->cookie = malloc(sizeof(struct pdata))) == 0)
+++    {
+++        fprintf(stderr, "%s: linuxspi_setup(): Unable to allocate private memory.\n", progname);
+++        exit(1);
+++    }
+++    memset(pgm->cookie, 0, sizeof(struct pdata));
+++}
+++
+++static void linuxspi_teardown(PROGRAMMER* pgm)
+++{
+++    free(pgm->cookie);
+++}
+++
+++static int linuxspi_open(PROGRAMMER* pgm, char* port)
+++{   
+++    char* buf;
+++    
+++    if (port == 0 || strcmp(port, "unknown") == 0) //unknown port
+++    {
+++        fprintf(stderr, "%s: error: No port specified. Port should point to an SPI interface.\n", progname);
+++        exit(1);
+++    }
+++    
+++    if (pgm->pinno[PIN_AVR_RESET] == 0)
+++    {
+++        fprintf(stderr, "%s: error: No pin assigned to AVR RESET.\n", progname);
+++        exit(1);
+++    }
+++
+++    //export reset pin
+++    buf = malloc(32);
+++    sprintf(buf, "%d", pgm->pinno[PIN_AVR_RESET] &~PIN_INVERSE);
+++    if (linuxspi_gpio_op_wr(pgm, LINUXSPI_GPIO_EXPORT, pgm->pinno[PIN_AVR_RESET], buf) < 0)
+++    {
+++        free(buf);
+++        return -1;
+++    }
+++    free(buf);
+++    
+++    //set reset to output active and write initial value at same time
+++    //this prevents glitches https://www.kernel.org/doc/Documentation/gpio/sysfs.txt
+++    if (linuxspi_gpio_op_wr(pgm, LINUXSPI_GPIO_DIRECTION, pgm->pinno[PIN_AVR_RESET], pgm->pinno[PIN_AVR_RESET]&PIN_INVERSE ? "high" : "low") < 0)
+++    {
+++        return -1;
+++    }
+++    
+++    //save the port to our data
+++    strcpy(pgm->port, port);
+++    
+++    return 0;
+++}
+++
+++static void linuxspi_close(PROGRAMMER* pgm)
+++{
+++    char* buf;
+++    
+++    //set reset to input
+++    linuxspi_gpio_op_wr(pgm, LINUXSPI_GPIO_DIRECTION, pgm->pinno[PIN_AVR_RESET], "in");
+++    
+++    //unexport reset
+++    buf = malloc(32);
+++    sprintf(buf, "%d", pgm->pinno[PIN_AVR_RESET]);
+++    linuxspi_gpio_op_wr(pgm, LINUXSPI_GPIO_UNEXPORT, pgm->pinno[PIN_AVR_RESET], buf);
+++}
+++
+++static void linuxspi_disable(PROGRAMMER* pgm)
+++{
+++    //do nothing
+++}
+++
+++static void linuxspi_enable(PROGRAMMER* pgm)
+++{
+++    //do nothing
+++}
+++
+++static void linuxspi_display(PROGRAMMER* pgm, const char* p)
+++{
+++    //do nothing
+++}
+++
+++static int linuxspi_initialize(PROGRAMMER* pgm, AVRPART* p)
+++{
+++    int tries, rc;
+++    
+++    if (p->flags & AVRPART_HAS_TPI)
+++    {
+++        //we do not support tpi..this is a dedicated SPI thing
+++        fprintf(stderr, "%s: error: Programmer %s does not support TPI\n", progname, pgm->type);
+++        return -1;
+++    }
+++    
+++    //enable programming on the part
+++    tries = 0;
+++    do
+++    {
+++        rc = pgm->program_enable(pgm, p);
+++        if (rc == 0 || rc == -1)
+++            break;
+++        tries++;
+++    }
+++    while(tries < 65);
+++    
+++    if (rc)
+++    {
+++        fprintf(stderr, "%s: error: AVR device not responding\n", progname);
+++        return -1;
+++    }
+++    
+++    return 0;
+++}
+++
+++static int linuxspi_cmd(PROGRAMMER* pgm, unsigned char cmd[4], unsigned char res[4])
+++{
+++    return linuxspi_spi_duplex(pgm, cmd, res, 4);
+++}
+++
+++static int linuxspi_program_enable(PROGRAMMER* pgm, AVRPART* p)
+++{
+++    unsigned char cmd[4];
+++    unsigned char res[4];
+++    
+++    if (p->op[AVR_OP_PGM_ENABLE] == NULL)
+++    {
+++        fprintf(stderr, "%s: error: program enable instruction not defined for part \"%s\"\n", progname, p->desc);
+++        return -1;
+++    }
+++    
+++    memset(cmd, 0, sizeof(cmd));
+++    avr_set_bits(p->op[AVR_OP_PGM_ENABLE], cmd); //set the cmd
+++    pgm->cmd(pgm, cmd, res);
+++    
+++    if (res[2] != cmd[1])
+++        return -2;
+++    
+++    return 0;
+++}
+++
+++static int linuxspi_chip_erase(PROGRAMMER* pgm, AVRPART* p)
+++{
+++    unsigned char cmd[4];
+++    unsigned char res[4];
+++    
+++    if (p->op[AVR_OP_CHIP_ERASE] == NULL)
+++    {
+++        fprintf(stderr, "%s: error: chip erase instruction not defined for part \"%s\"\n", progname, p->desc);
+++        return -1;
+++    }
+++    
+++    memset(cmd, 0, sizeof(cmd));
+++
+++    avr_set_bits(p->op[AVR_OP_CHIP_ERASE], cmd);
+++    pgm->cmd(pgm, cmd, res);
+++    usleep(p->chip_erase_delay);
+++    pgm->initialize(pgm, p);
+++    
+++    return 0;
+++}
+++
+++void linuxspi_initpgm(PROGRAMMER * pgm)
+++{
+++    strcpy(pgm->type, "linuxspi");
+++    
+++    pgm_fill_old_pins(pgm); // TODO to be removed if old pin data no longer needed
+++    
+++    /*
+++     * mandatory functions
+++     */
+++
+++    pgm->initialize     = linuxspi_initialize;
+++    pgm->display        = linuxspi_display;
+++    pgm->enable         = linuxspi_enable;
+++    pgm->disable        = linuxspi_disable;
+++    pgm->program_enable = linuxspi_program_enable;
+++    pgm->chip_erase     = linuxspi_chip_erase;
+++    pgm->cmd            = linuxspi_cmd;
+++    pgm->open           = linuxspi_open;
+++    pgm->close          = linuxspi_close;
+++    pgm->read_byte      = avr_read_byte_default;
+++    pgm->write_byte     = avr_write_byte_default;
+++
+++    /*
+++     * optional functions
+++     */
+++    pgm->setup          = linuxspi_setup;
+++    pgm->teardown       = linuxspi_teardown;
+++}
+++
+++const char linuxspi_desc[] = "SPI using Linux spidev driver";
+++
+++#else
+++
+++void linuxspi_initpgm(PROGRAMMER * pgm)
+++{
+++    fprintf(stderr,
+++      "%s: Linux SPI driver not available in this configuration\n",
+++      progname);
+++}
+++
+++const char linuxspi_desc[] = "SPI using Linux spidev driver (not available)";
+++
+++#endif
++Index: avrdude-6.1/linuxspi.h
++===================================================================
++--- /dev/null
+++++ avrdude-6.1/linuxspi.h
++@@ -0,0 +1,37 @@
+++/*
+++ * avrdude - A Downloader/Uploader for AVR device programmers
+++ * Copyright (C) 2013 Kevin Cuzner <kevin@kevincuner.com>
+++ *
+++ * This program is free software; you can redistribute it and/or modify
+++ * it under the terms of the GNU General Public License as published by
+++ * the Free Software Foundation; either version 2 of the License, or
+++ * (at your option) any later version.
+++ *
+++ * This program is distributed in the hope that it will be useful,
+++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+++ * GNU General Public License for more details.
+++ *
+++ * You should have received a copy of the GNU General Public License
+++ * along with this program; if not, write to the Free Software
+++ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+++ */
+++
+++#include "pgm.h"
+++
+++#ifndef linuxspi_h
+++#define linuxspi_h
+++
+++#ifdef __cplusplus
+++extern "C" {
+++#endif
+++
+++extern const char linuxspi_desc[];
+++void linuxspi_initpgm        (PROGRAMMER * pgm);
+++
+++#ifdef __cplusplus
+++}
+++#endif
+++
+++#endif //linuxspi_h
+++
++Index: avrdude-6.1/pgm_type.c
++===================================================================
++--- avrdude-6.1.orig/pgm_type.c
+++++ avrdude-6.1/pgm_type.c
++@@ -41,6 +41,7 @@
++ #include "jtagmkII.h"
++ #include "jtag3.h"
++ #include "linuxgpio.h"
+++#include "linuxspi.h"
++ #include "par.h"
++ #include "pickit2.h"
++ #include "ppi.h"
++@@ -81,6 +82,7 @@ const PROGRAMMER_TYPE const programmers_
++         {"jtagice3_dw", jtag3_dw_initpgm, jtag3_dw_desc},
++         {"jtagice3_isp", stk500v2_jtag3_initpgm, stk500v2_jtag3_desc},
++         {"linuxgpio", linuxgpio_initpgm, linuxgpio_desc},
+++	{"linuxspi", linuxspi_initpgm, linuxspi_desc},
++         {"par", par_initpgm, par_desc},
++         {"pickit2", pickit2_initpgm, pickit2_desc},
++         {"serbb", serbb_initpgm, serbb_desc},
