@@ -1,5 +1,5 @@
 --- /dev/null	2015-11-21 19:07:45.507000000 +0300
-+++ target/linux/ar71xx/patches-3.18/105-MIPS-ath79-console-disable.patch
++++ target/linux/ar71xx/patches-3.18/850-MIPS-ath79-console-disable.patch
 @@ -0,0 +1,203 @@
 +Index: a/arch/mips/ath79/prom.c
 +===================================================================
