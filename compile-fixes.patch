@@ -34,3 +34,15 @@
 + 
 + HOSTLOADLIBES_nconf	= $(shell \
 + 				pkg-config --libs menuw panelw ncursesw 2>/dev/null \
+--- /dev/null
++++ tools/cmake/patches/105-devtoolset-libtinfo-fix.patch
+@@ -0,0 +1,9 @@
++--- a/Source/CursesDialog/CMakeLists.txt
+++++ b/Source/CursesDialog/CMakeLists.txt
++@@ -33,5 +33,6 @@ include_directories(${CURSES_INCLUDE_PAT
++ add_executable(ccmake ${CURSES_SRCS} )
++ target_link_libraries(ccmake CMakeLib)
++ target_link_libraries(ccmake cmForm)
+++target_link_libraries(ccmake tinfo)
++ 
++ install(TARGETS ccmake DESTINATION bin)
