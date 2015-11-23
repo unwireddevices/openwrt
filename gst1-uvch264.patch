@@ -53,3 +53,14 @@
  
  $(eval $(call BuildPackage,gstreamer1-plugins-bad))
  $(eval $(call BuildPackage,gst1-plugins-bad))
+--- package/feeds/packages/gst1-plugins-good/Makefile
++++ package/feeds/packages/gst1-plugins-good/Makefile
+@@ -221,7 +221,7 @@ $(eval $(call GstBuildPlugin,spectrum,sp
+ #$(eval $(call GstBuildPlugin,sty4menc,sty4menc support,video,,))
+ #$(eval $(call GstBuildPlugin,taglib,taglib support,tag,,))
+ $(eval $(call GstBuildPlugin,udp,UDP,net,,))
+-$(eval $(call GstBuildPlugin,video4linux2,video4linux2 support,video allocators,,+libv4l))
++$(eval $(call GstBuildPlugin,video4linux2,video4linux2 support,video allocators,,+libv4l +udev))
+ $(eval $(call GstBuildPlugin,videobox,videobox support,video,,))
+ $(eval $(call GstBuildPlugin,videocrop,videocrop support,video,,))
+ $(eval $(call GstBuildPlugin,videofilter,videofilter support,video,,))
