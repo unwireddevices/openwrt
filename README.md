@@ -17,7 +17,7 @@ Patches were tested with OpenWRT 14.07 r47068. To download it, use *svn co -r 47
 
 *patch -p0 &lt; mjpg-nohotplug.patch* — disable mjpg_streamer in /etc/hotplug.d/usb/ (not included in stock firmware)
 
-*patch -p0 &lt; console.patch* — patch to allow to completely disable UART console using bootloader's environment variable. Must be re-applied after *make clean* and must be preceeded with *make kernel_menuconfig*
+*patch -p0 &lt; console.patch* — patch to allow to completely disable UART console using bootloader's environment variable (''fw_setenv silent 1'' shell command to set it)
 
 *patch -p0 &lt; opkg.patch* — add Unwired's OpenWRT repository (http://files.black-swift.com/files/openwrt/bbreaker/1.0/packages/) to /etc/opkg.conf
 
