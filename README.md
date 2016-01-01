@@ -29,7 +29,9 @@ Run *cd chaos && ./scripts/feeds update -a && ./scripts/feeds install -a* after 
 
 *patch -p0 &lt; vermagic.patch* — set vermagic number with menuconfig instead of automatically generated md5 hash of the kernel config file
 
-*.config* — ready to use OpenWRT Buildroot configuration file. Copy it to ~/openwrt folder.
+*.config.base* — ready to use OpenWRT Buildroot configuration file to build firmware only (copy it to .config file in OpenWRT directory)
+
+*.config.all* — ready to use OpenWRT Buildroot configuration file to build firmware and all kernel modules (copy it to .config file in OpenWRT directory)
 
 To apply all patches with a single command, put patches you need in some directory and run *for i in $(ls /that/directory/***.patch); do patch -p0 < $i; done*
 
