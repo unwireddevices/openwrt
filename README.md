@@ -23,6 +23,8 @@ Patches were tested with OpenWRT 14.07 r47068. To download it, use *svn co -r 47
 
 *patch -p0 &lt; vermagic.patch* — set vermagic number with menuconfig instead of automatically generated md5 hash of the kernel config file
 
-*.config* — ready to use OpenWRT Buildroot configuration file
+*.config.base* — ready to use OpenWRT Buildroot configuration file to build firmware only (copy it to .config file in OpenWRT directory)
+
+*.config.all* — ready to use OpenWRT Buildroot configuration file to build firmware and all kernel modules (copy it to .config file in OpenWRT directory)
 
 For more details, please visit http://www.unwireddevices.com/wiki
