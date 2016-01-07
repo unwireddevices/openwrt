@@ -5,7 +5,9 @@ Patches were tested with OpenWRT 15.05 release 48147. To download it, use *svn c
 
 Run *cd chaos && ./scripts/feeds update -a && ./scripts/feeds install -a* after downloading.
 
-*patch -p0 &lt; unwired.patch* — adds Unwired One board to the list of targets. Run *touch target/linux/***/Makefile* after applying it.
+Patches are splitted into separate files to make it easier to create your own configuration. If you are ok with Unwired One's default firmware configuration, it's ok to apply all patches at once.
+
+*patch -p0 &lt; unwired.patch* — adds Unwired One board to the list of targets, changes some configuration files to reflect One's default settings. Run *touch target/linux/***/Makefile* after applying it.
 
 *patch -p0 &lt; avrdude.patch* — adds AVRDude package
 
@@ -26,6 +28,8 @@ Run *cd chaos && ./scripts/feeds update -a && ./scripts/feeds install -a* after 
 *patch -p0 &lt; console.patch* — allows to completely disable UART console using bootloader's environment variable
 
 *patch -p0 &lt; opkg.patch* — add Unwired's OpenWRT repository (http://files.unwds.com/files/openwrt/ccalmer/1.0/packages/) to /etc/opkg.conf
+
+*patch -p0 &lt; uhttpd-disable-https-redirect.patch* — disable HTTPS redirect in uHTTPD server
 
 *patch -p0 &lt; vermagic.patch* — set vermagic number with menuconfig instead of automatically generated md5 hash of the kernel config file
 
