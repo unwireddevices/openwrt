@@ -1,19 +1,29 @@
-Index: package/base-files/files/etc/config/network
-===================================================================
 --- package/base-files/files/etc/config/network
 +++ package/base-files/files/etc/config/network
-@@ -6,6 +6,11 @@
+@@ -6,13 +6,18 @@ config interface loopback
  	option ipaddr	127.0.0.1
  	option netmask	255.0.0.0
  
+-config interface lan
+-	option ifname	eth0
+-	option type 	bridge
 +config interface wlan
-+	option proto	static
+ 	option proto	static
+-	option ipaddr	192.168.1.1
 +	option ipaddr	192.168.0.254
-+	option netmask	255.255.255.0
+ 	option netmask	255.255.255.0
+-	option ip6assign 60
 +	
- config interface lan
- 	option ifname	eth0
- 	option type 	bridge
++# config interface lan
++#	option ifname	eth0
++#	option type 	bridge
++#	option proto	static
++#	option ipaddr	192.168.19.1
++#	option netmask	255.255.255.0
++#	option ip6assign 60
+ 
+ config globals globals
+ 	option ula_prefix auto
 Index: package/base-files/files/etc/config/system
 ===================================================================
 --- package/base-files/files/etc/config/system
