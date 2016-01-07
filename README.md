@@ -1,11 +1,15 @@
 # openwrt
 OpenWRT patches for Unwired One board
 
+<<<<<<< HEAD
 Patches were tested with OpenWRT 14.07 r48147. To download it, use *svn co -r 48147 svn://svn.openwrt.org/openwrt/branches/barrier_breaker openwrt*
 
 Run *cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a* after downloading.
 
 Patches are splitted into separate files to make it easier to create your own configuration. If you are ok with Unwired One's default firmware configuration, it's ok to apply all patches at once.
+=======
+Patches were tested with OpenWRT 14.07 r48014. To download it, use *svn co -r 48014 svn://svn.openwrt.org/openwrt/branches/barrier_breaker openwrt*
+>>>>>>> origin/master
 
 *patch -p0 &lt; unwired.patch* — adds Unwired One board to the list of targets. Run *touch target/linux/***/Makefile* after applying it.
 
