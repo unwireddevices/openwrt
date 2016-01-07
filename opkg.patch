@@ -1,12 +1,14 @@
-Index: package/system/opkg/Makefile
-===================================================================
 --- package/system/opkg/Makefile
 +++ package/system/opkg/Makefile
-@@ -117,6 +117,7 @@
+@@ -117,6 +117,11 @@ define Package/opkg/Default/install
  	done
      endif
    endif
-+	echo "src/gz unwired_one http://files.unwireddevices.com/files/openwrt/bbreaker/1.0/packages/" >> $(1)/etc/opkg.conf
++	echo "src/gz unwired_bb_base http://files.unwireddevices.com/files/openwrt/bbreaker/1.0/packages/base/" >> $(1)/etc/opkg.conf
++	echo "src/gz unwired_bb_luci http://files.unwireddevices.com/files/openwrt/bbreaker/1.0/packages/luci/" >> $(1)/etc/opkg.conf
++	echo "src/gz unwired_bb_packages http://files.unwireddevices.com/files/openwrt/bbreaker/1.0/packages/packages/" >> $(1)/etc/opkg.conf
++	echo "src/gz unwired_bb_routing http://files.unwireddevices.com/files/openwrt/bbreaker/1.0/packages/routing/" >> $(1)/etc/opkg.conf
++	echo "src/gz unwired_bb_telephony http://files.unwireddevices.com/files/openwrt/bbreaker/1.0/packages/telephony/" >> $(1)/etc/opkg.conf
  	$(VERSION_SED) $(1)/etc/opkg.conf
  	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/opkg-cl $(1)/bin/opkg
  endef
