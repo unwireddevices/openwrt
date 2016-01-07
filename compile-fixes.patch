@@ -1,16 +1,43 @@
-Index: package/kernel/gpio-dht-handler/src/Makefile
+Index: feeds/packages/multimedia/mjpg-streamer/Makefile
 ===================================================================
 --- feeds/packages/multimedia/mjpg-streamer/Makefile
 +++ feeds/packages/multimedia/mjpg-streamer/Makefile
-@@ -52,7 +52,7 @@
- define Download/cambozola
-   URL:=http://www.andywilcock.com/code/cambozola
-   FILE:=$(CAMBOZOLA)
--  MD5SUM:=c9b0da91f8e6e72efccd307e04e2b75b
-+  MD5SUM:=1c41f0204a146264e8eba7ddbe2ba0a6
+@@ -47,23 +47,8 @@ define Package/mjpg-streamer/conffiles
+ /etc/config/mjpg-streamer
  endef
  
- # Fetch latest cambozola that works with latest Java(s)
+-CAMBOZOLA:=cambozola-latest.tar.gz
+-
+-define Download/cambozola
+-  URL:=http://www.andywilcock.com/code/cambozola
+-  FILE:=$(CAMBOZOLA)
+-  MD5SUM:=c9b0da91f8e6e72efccd307e04e2b75b
+-endef
+-
+-# Fetch latest cambozola that works with latest Java(s)
+-# Yes, I know this is ugly
+ define Build/Prepare
+     $(call Build/Prepare/Default)
+-    ifeq ($(CONFIG_MJPG_STREAMER_WWW),y)
+-	$(eval $(call Download,cambozola))
+-	$(TAR) -xvf $(DL_DIR)/$(CAMBOZOLA) --strip=2 --wildcards \
+-		-C $(PKG_BUILD_DIR)/www */dist/cambozola.jar
+-    endif
+ endef
+ 
+ ifeq ($(CONFIG_MJPG_STREAMER_V4L2),y)
+@@ -96,11 +81,7 @@ endif
+ ifeq ($(CONFIG_MJPG_STREAMER_OUTPUT_HTTP),y)
+ 	$(CP) $(PKG_BUILD_DIR)/output_http.so $(1)/usr/lib
+ 	$(INSTALL_DIR) $(1)/www/webcam
+-    ifeq ($(CONFIG_MJPG_STREAMER_WWW),y)
+-	$(INSTALL_DATA) $(PKG_BUILD_DIR)/www/* $(1)/www/webcam
+-    else
+ 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/www/stream_simple.html $(1)/www/webcam/index.html
+-    endif
+ endif
+ endef
+ 
 Index: feeds/oldpackages/net/openswan/Makefile
 ==============================================
 --- feeds/oldpackages/net/openswan/Makefile
