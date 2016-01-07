@@ -1,0 +1,23 @@
+--- package/base-files/files/etc/config/network
++++ package/base-files/files/etc/config/network
+@@ -11,13 +11,13 @@ config interface wlan
+ 	option ipaddr	192.168.0.254
+ 	option netmask	255.255.255.0
+ 	
+-config interface lan
+-	option ifname	eth0
+-	option type 	bridge
+-	option proto	static
+-	option ipaddr	192.168.1.1
+-	option netmask	255.255.255.0
+-	option ip6assign 60
++# config interface lan
++#	option ifname	eth0
++#	option type 	bridge
++#	option proto	static
++#	option ipaddr	192.168.9.1
++#	option netmask	255.255.255.0
++#	option ip6assign 60
+ 
+ config globals globals
+ 	option ula_prefix auto
