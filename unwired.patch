@@ -755,7 +755,7 @@ Index: target/linux/ar71xx/image/Makefile
 +  BOARDNAME = UNWONE
 +  IMAGE_SIZE = 16000k
 +  CONSOLE = ttyATH0,115200
-+  MTDPARTS = spi0.0:128k(u-boot)ro,64k(u-boot-env)ro,16128k(firmware),64k(art)ro
++  MTDPARTS = spi0.0:128k(u-boot)ro,64k(u-boot-env),16128k(firmware),64k(art)ro
 +endef
 +TARGET_DEVICES += unwone
 +
