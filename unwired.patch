@@ -14,10 +14,10 @@ Index: package/base-files/files/etc/config/system
  	option enabled 1
  	option enable_server 0
 +
-+config led 'led_sys'                                                            
-+        option name 'SYS'                                                       
-+        option sysfs 'unwone:red:sys'                                              
-+        option default '1'                                                      
++config led 'led_sys'
++        option name 'SYS'
++        option sysfs 'unwone:red:sys'
++        option default '1'
 +        option trigger 'none'
 Index: package/base-files/files/etc/config/shadow
 ===================================================================
@@ -33,7 +33,7 @@ Index: package/base-files/files/lib/functions/uci-defaults.sh
 ===================================================================
 --- package/base-files/files/lib/functions/uci-defaults.sh
 +++ package/base-files/files/lib/functions/uci-defaults.sh
-@@ -175,9 +175,27 @@ set network.lan.ifname='$ifname'
+@@ -213,9 +213,27 @@ set network.lan.ifname='$ifname'
  set network.lan.force_link=1
  set network.lan.type='bridge'
  set network.lan.proto='static'
@@ -104,7 +104,7 @@ Index: target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
 ===================================================================
 --- target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
 +++ target/linux/ar71xx/base-files/etc/uci-defaults/01_leds
-@@ -514,6 +514,10 @@ tube2h)
+@@ -523,6 +523,10 @@ tube2h)
  	ucidef_set_led_rssi "signal4" "SIGNAL4" "alfa:green:signal4" "wlan0" "76" "100" "-75" "13"
  	;;
  
@@ -137,7 +137,7 @@ Index: target/linux/ar71xx/base-files/lib/ar71xx.sh
 ===================================================================
 --- target/linux/ar71xx/base-files/lib/ar71xx.sh
 +++ target/linux/ar71xx/base-files/lib/ar71xx.sh
-@@ -934,6 +934,9 @@
+@@ -938,6 +938,9 @@
  	"8devices Carambola2"*)
  		name="carambola2"
  		;;
@@ -438,7 +438,7 @@ Index: target/linux/ar71xx/config-3.18
  # CONFIG_ATH79_MACH_RB2011 is not set
  # CONFIG_ATH79_MACH_RB4XX is not set
  # CONFIG_ATH79_MACH_RB750 is not set
-@@ -102,65 +101,66 @@ CONFIG_ATH79_MACH_R6100=y
+@@ -102,66 +102,67 @@
  # CONFIG_ATH79_MACH_RB922 is not set
  # CONFIG_ATH79_MACH_RB95X is not set
  # CONFIG_ATH79_MACH_RBSXTLITE is not set
@@ -472,6 +472,7 @@ Index: target/linux/ar71xx/config-3.18
 -CONFIG_ATH79_MACH_TL_WR841N_V8=y
 -CONFIG_ATH79_MACH_TL_WR841N_V9=y
 -CONFIG_ATH79_MACH_TL_WR941ND=y
+-CONFIG_ATH79_MACH_TL_WR941ND_V6=y
 -CONFIG_ATH79_MACH_TUBE2H=y
 -CONFIG_ATH79_MACH_UBNT=y
 -CONFIG_ATH79_MACH_UBNT_XM=y
@@ -531,6 +532,7 @@ Index: target/linux/ar71xx/config-3.18
 +# CONFIG_ATH79_MACH_TL_WR841N_V8 is not set
 +# CONFIG_ATH79_MACH_TL_WR841N_V9 is not set
 +# CONFIG_ATH79_MACH_TL_WR941ND is not set
++# CONFIG_ATH79_MACH_TL_WR941ND_V6 is not set
 +# CONFIG_ATH79_MACH_TUBE2H is not set
 +# CONFIG_ATH79_MACH_UBNT is not set
 +# CONFIG_ATH79_MACH_UBNT_XM is not set
@@ -564,7 +566,7 @@ Index: target/linux/ar71xx/config-3.18
  # CONFIG_ATH79_ROUTERBOOT is not set
  CONFIG_ATH79_WDT=y
  CONFIG_CC_OPTIMIZE_FOR_SIZE=y
-@@ -183,10 +183,19 @@ CONFIG_CPU_R4K_FPU=y
+@@ -184,10 +184,19 @@ CONFIG_CPU_R4K_FPU=y
  CONFIG_CPU_SUPPORTS_32BIT_KERNEL=y
  CONFIG_CPU_SUPPORTS_HIGHMEM=y
  CONFIG_CPU_SUPPORTS_MSA=y
@@ -584,7 +586,7 @@ Index: target/linux/ar71xx/config-3.18
  CONFIG_GENERIC_ATOMIC64=y
  CONFIG_GENERIC_CLOCKEVENTS=y
  CONFIG_GENERIC_CLOCKEVENTS_BUILD=y
-@@ -198,8 +207,7 @@ CONFIG_GENERIC_SMP_IDLE_THREAD=y
+@@ -199,8 +208,7 @@ CONFIG_GENERIC_SMP_IDLE_THREAD=y
  CONFIG_GPIOLIB=y
  CONFIG_GPIO_DEVRES=y
  # CONFIG_GPIO_LATCH is not set
@@ -594,7 +596,7 @@ Index: target/linux/ar71xx/config-3.18
  CONFIG_GPIO_SYSFS=y
  CONFIG_HARDWARE_WATCHPOINTS=y
  CONFIG_HAS_DMA=y
-@@ -235,7 +243,9 @@ CONFIG_HAVE_NET_DSA=y
+@@ -236,7 +244,9 @@ CONFIG_HAVE_NET_DSA=y
  CONFIG_HAVE_OPROFILE=y
  CONFIG_HAVE_PERF_EVENTS=y
  CONFIG_HAVE_SYSCALL_TRACEPOINTS=y
@@ -605,7 +607,7 @@ Index: target/linux/ar71xx/config-3.18
  CONFIG_HZ_PERIODIC=y
  CONFIG_I2C=y
  CONFIG_I2C_ALGOBIT=y
-@@ -245,21 +255,23 @@ CONFIG_IMAGE_CMDLINE_HACK=y
+@@ -246,21 +256,23 @@ CONFIG_IMAGE_CMDLINE_HACK=y
  CONFIG_INITRAMFS_ROOT_GID=0
  CONFIG_INITRAMFS_ROOT_UID=0
  CONFIG_INITRAMFS_SOURCE="../../root"
@@ -634,7 +636,7 @@ Index: target/linux/ar71xx/config-3.18
  CONFIG_MTD_CFI_ADV_OPTIONS=y
  CONFIG_MTD_CFI_GEOMETRY=y
  # CONFIG_MTD_CFI_I2 is not set
-@@ -279,29 +291,45 @@ CONFIG_MTD_SPLIT_LZMA_FW=y
+@@ -280,29 +292,45 @@ CONFIG_MTD_SPLIT_LZMA_FW=y
  CONFIG_MTD_SPLIT_SEAMA_FW=y
  CONFIG_MTD_SPLIT_UIMAGE_FW=y
  CONFIG_MTD_TPLINK_PARTS=y
@@ -693,7 +695,7 @@ Index: target/linux/ar71xx/config-3.18
  # CONFIG_SCSI_DMA is not set
  CONFIG_SERIAL_8250_NR_UARTS=1
  CONFIG_SERIAL_8250_RUNTIME_UARTS=1
-@@ -310,16 +338,24 @@ CONFIG_SERIAL_AR933X_CONSOLE=y
+@@ -311,16 +339,24 @@ CONFIG_SERIAL_AR933X_CONSOLE=y
  CONFIG_SERIAL_AR933X_NR_UARTS=2
  # CONFIG_SLAB is not set
  CONFIG_SLUB=y
@@ -725,7 +727,7 @@ Index: target/linux/ar71xx/config-3.18
  CONFIG_SPI_ATH79=y
  CONFIG_SPI_BITBANG=y
  CONFIG_SPI_MASTER=y
-@@ -333,5 +369,17 @@ CONFIG_SYS_SUPPORTS_ARBIT_HZ=y
+@@ -334,5 +370,17 @@ CONFIG_SYS_SUPPORTS_ARBIT_HZ=y
  CONFIG_SYS_SUPPORTS_BIG_ENDIAN=y
  CONFIG_SYS_SUPPORTS_MIPS16=y
  CONFIG_TICK_CPU_ACCOUNTING=y
