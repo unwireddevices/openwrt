@@ -1,0 +1,83 @@
+--- target/linux/ar71xx/files/arch/mips/ath79/mach-unwone.c
++++ target/linux/ar71xx/files/arch/mips/ath79/mach-unwone.c
+@@ -21,6 +21,10 @@
+ #include "machtypes.h"
+ 
+ #define UNWONE_GPIO_LED_SYS		27
++#define UNWONE_GPIO_LED_ETH0	16
++#define UNWONE_GPIO_LED_RXTX0	15
++#define UNWONE_GPIO_LED_ETH1	14
++#define UNWONE_GPIO_LED_RXTX1	13
+ 
+ #define UNWONE_GPIO_BTN_RESET		11
+ 
+@@ -35,6 +39,30 @@ static struct gpio_led unwone_leds_gpio[
+ 		.name		= "unwone:red:sys",
+ 		.gpio		= UNWONE_GPIO_LED_SYS,
+ 		.active_low	= 1,
++	},
++	
++	{
++		.name		= "unwone:green:eth0_link",
++		.gpio		= UNWONE_GPIO_LED_ETH0,
++		.active_low	= 0,
++	},
++	
++	{
++		.name		= "unwone:green:eth0_rxtx",
++		.gpio		= UNWONE_GPIO_LED_RXTX0,
++		.active_low	= 0,
++	},
++	
++	{
++		.name		= "unwone:green:eth1_link",
++		.gpio		= UNWONE_GPIO_LED_ETH1,
++		.active_low	= 0,
++	},
++	
++	{
++		.name		= "unwone:green:eth1_rxtx",
++		.gpio		= UNWONE_GPIO_LED_RXTX1,
++		.active_low	= 0,
+ 	}
+ };
+ 
+
+--- package/base-files/files/etc/config/system
++++ package/base-files/files/etc/config/system
+@@ -15,3 +15,35 @@ config led 'led_sys'
+         option sysfs 'unwone:red:sys'
+         option default '1'
+         option trigger 'none'
++
++		config led 'led_eth0'
++		option name 'ETH0'
++		option sysfs 'unwone:green:eth0_link'
++		option dev 'eth0'
++		option default '0'
++		option mode 'link'
++		option trigger 'netdev'
++		
++		config led 'led_rxtx0'
++		option name 'RXTX0'
++		option sysfs 'unwone:green:eth0_rxtx'
++		option dev 'eth0'
++		option default '0'
++		option mode 'tx rx'
++		option trigger 'netdev'
++		
++		config led 'led_eth1'
++		option name 'ETH1'
++		option sysfs 'unwone:green:eth1_link'
++		option dev 'eth1'
++		option default '0'
++		option mode 'link'
++		option trigger 'netdev'
++		
++		config led 'led_rxtx1'
++		option name 'RXTX0'
++		option sysfs 'unwone:green:eth1_rxtx'
++		option dev 'eth1'
++		option default '0'
++		option mode 'tx rx'
++		option trigger 'netdev'
