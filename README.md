@@ -1,9 +1,9 @@
 # openwrt
 OpenWRT 15.05 "Chaos Calmer" patches for Unwired One board
 
-Patches were tested with OpenWRT 15.05 release 48147. To download it, use *svn co -r 48147 svn://svn.openwrt.org/openwrt/branches/chaos_calmer chaos*
+Patches were tested with OpenWRT 15.05 release 49007.
 
-Run *cd chaos && ./scripts/feeds update -a && ./scripts/feeds install -a* after downloading.
+Run *cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a* after <a href="https://dev.openwrt.org/wiki/GetSource">downloading</a> OpenWRT sources.
 
 Patches are splitted into separate files to make it easier to create your own configuration. If you are ok with Unwired One's default firmware configuration, it's ok to apply all patches at once.
 
